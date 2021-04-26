@@ -7,13 +7,14 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 
 class TransformerModel(nn.Module):
-    def __init__(self, n_class, n_inp, n_head, n_hid, n_layers, dropout):
+    def __init__(self, n_class, n_inp, n_hid_0, n_hid_1, n_head, n_layers, dropout):
         super(TransformerModel, self).__init__()
         self.model_type = 'Transformer'
-        self.pos_encoder = PositionalEncoding(n_inp, dropout)
-        encoder_layers = TransformerEncoderLayer(n_inp, n_head, n_hid, dropout)
+        self.encoder = nn.Linear(n_inp, n_hid_0)
+        self.pos_encoder = PositionalEncoding(n_hid_0, dropout)
+        encoder_layers = TransformerEncoderLayer(n_hid_0, n_head, n_hid_1, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, n_layers)
-        self.decoder = nn.Linear(n_inp, n_class)
+        self.decoder = nn.Linear(n_hid_1, n_class)
 
         self.init_weights()
 
@@ -24,14 +25,16 @@ class TransformerModel(nn.Module):
 
     def init_weights(self):
         init_range = .1
+        self.encoder.weight.data.uniform_(-init_range, init_range)
         self.decoder.bias.data.zero_()
         self.decoder.weight.data.uniform_(-init_range, init_range)
 
     def forward(self, src):
+        src = self.encoder(src)
         src = self.pos_encoder(src)  # Positional embedding
         output = self.transformer_encoder(src)
-        output = self.decoder(output)
-        return output
+        output = output.mean(axis=1)
+        return self.decoder(output)
 
 
 class PositionalEncoding(nn.Module):
