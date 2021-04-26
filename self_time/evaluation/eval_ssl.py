@@ -119,3 +119,55 @@ def evaluation(x_train, y_train, x_val, y_val, x_test, y_test, nb_class, ckpt, o
             break
 
     return test_acc, best_epoch
+
+
+def clustering_evaluation(x_train, y_train, x_val, y_val, x_test, y_test, nb_class, ckpt, opt, ckpt_tosave=None):
+    # no augmentations used for linear evaluation
+    transform_lineval = transforms.Compose([transforms.ToTensor()])
+
+    train_set_lineval = UCR2018(data=x_train, targets=y_train, transform=transform_lineval)
+    val_set_lineval = UCR2018(data=x_val, targets=y_val, transform=transform_lineval)
+    test_set_lineval = UCR2018(data=x_test, targets=y_test, transform=transform_lineval)
+
+    train_loader_lineval = torch.utils.data.DataLoader(train_set_lineval, batch_size=128, shuffle=True,
+                                                       num_workers=opt.num_workers)
+    val_loader_lineval = torch.utils.data.DataLoader(val_set_lineval, batch_size=128, shuffle=False,
+                                                     num_workers=opt.num_workers)
+    test_loader_lineval = torch.utils.data.DataLoader(test_set_lineval, batch_size=128, shuffle=False,
+                                                      num_workers=opt.num_workers)
+    signal_length = x_train.shape[1]
+
+    # loading the saved backbone
+    backbone_lineval = SimConv4().cuda()  # defining a raw backbone model
+
+    checkpoint = torch.load(ckpt, map_location='cpu')
+    backbone_lineval.load_state_dict(checkpoint)
+    if ckpt_tosave:
+        torch.save(backbone_lineval.state_dict(), ckpt_tosave)
+
+    print(f'Linear evaluation [{opt.model_name}]')
+    backbone_lineval.eval()
+
+    # Clustering
+    with torch.no_grad():
+
+        # on training set
+        with tqdm(train_loader_lineval, unit="batch") as t_epoch:
+            for i, (data, target) in enumerate(t_epoch):
+                t_epoch.set_description(f"Clustering on the training set")
+                output = backbone_lineval(data.cuda()).detach()
+                """ Clustering starts here """
+
+        # on validation set
+        with tqdm(val_loader_lineval, unit="batch") as t_epoch:
+            for i, (data, target) in enumerate(t_epoch):
+                t_epoch.set_description(f"Clustering on the validation set")
+                output = backbone_lineval(data.cuda()).detach()
+                """ Clustering starts here """
+
+        # on test set
+        with tqdm(test_loader_lineval, unit="batch") as t_epoch:
+            for i, (data, target) in enumerate(t_epoch):
+                t_epoch.set_description(f"Clustering on the test set")
+                output = backbone_lineval(data.cuda()).detach()
+                """ Clustering starts here """
