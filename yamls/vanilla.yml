@@ -1,0 +1,80 @@
+project_root: /raid/home/minht/projects/prostate_teus/ProstateCancerClassificationV1
+tasks: [ 'cls', ]
+tasks_num_class: [ 2, ]
+input_channels: [ 1, ]
+num_workers: 4
+model_name: vanilla
+self_train: False
+
+paths: # 'exp_name' will be replaced by actual experiment name
+  log_dir: experiments/exp_name/logs
+  result_dir: experiments/exp_name/results
+  checkpoint_dir: experiments/exp_name/checkpoints
+  self_train_checkpoint: 'ckpt/inception/SelfTime/ProstateTeUS/magnitude_warp_time_warp/0.2_3C/0/backbone_best.tar'
+
+data_source:
+  dataset: ProstateTeUS
+  data_root: datasets
+  train_set: BK_RF_P1_140_balance__20210203-175808_mimic.pkl  # BK_RF_P1_140_balance__20201127-104536.mat
+  test_set: BK_RF_P1_140_balance__20210203-175808_mimic.pkl
+
+# Tunable (iteratively) hyper-parameters
+seed: 0
+n_epochs: 100
+total_iters: 20000
+#backbone: [ resnet_ucr, resnet_ucr ]  # SimConv4 Inception resnet_ucr
+backbone: Classifier3L  # SimConv4 Inception resnet_ucr Classifier3L
+#backbone: [inception_time, inception_time]  # SimConv4
+exp_name: elr
+exp_suffix: ''
+test_batch_size: 2048
+train_batch_size: 2048
+lr: 1e-4
+normalize_input: none
+temperature: .5
+aug_type: [ 'magnitude_warp', 'time_warp', 'scaling', 'window_slice', 'window_warp' ]  # 'none'
+#aug_type: 'none'
+loss_name: 'gce'  # 'gce'
+
+train:
+  lr_scheduler:
+    policy_lr: .01
+    backbone_lr: .001
+    patience: 999
+    trials: 0
+    epoch_decay_start: 50
+  resume: False
+  retrain_resume: False
+  policy_iter: best
+  which_iter: warmup
+  init_method: equal
+  log_interval: 1
+  val_interval: 1
+  switch_core_no: 0
+  elr:
+    alpha: 3
+    beta: .7
+
+arch:
+  # inception
+  num_blocks: 3
+  out_channels: 30
+  # resnet
+  mid_channels: 32
+  num_positions: 8
+
+tensorboard:
+  flush_secs: 10
+  filename_suffix: ''
+
+test:
+  test_interval: 1
+  which_iter: best
+
+abstention:
+  learn_epochs: 5
+  abst_rate: 0.1
+  alpha_final: 1.
+  alpha_init_factor: 64.
+  pid_tunings: [ .1, .1, .05 ]
+

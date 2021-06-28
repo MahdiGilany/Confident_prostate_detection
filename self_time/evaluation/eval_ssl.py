@@ -1,21 +1,26 @@
 # -*- coding: utf-8 -*-
 
+import numpy as np
+import pylab as plt
+from tqdm import tqdm
+
 import torch
 import torch.utils.data as data
-from tqdm import tqdm
+
 import self_time.utils.transforms as transforms
-from self_time.dataloader.ucr2018 import UCR2018
-from self_time.optim.pytorchtools import EarlyStopping
 from self_time.model.model_backbone import SimConv4
+from self_time.dataloader.time_series import TsLoader
+from self_time.optim.pytorchtools import EarlyStopping
+from utils.cluster import get_features, get_eval_results
 
 
 def evaluation(x_train, y_train, x_val, y_val, x_test, y_test, nb_class, ckpt, opt, ckpt_tosave=None):
     # no augmentations used for linear evaluation
     transform_lineval = transforms.Compose([transforms.ToTensor()])
 
-    train_set_lineval = UCR2018(data=x_train, targets=y_train, transform=transform_lineval)
-    val_set_lineval = UCR2018(data=x_val, targets=y_val, transform=transform_lineval)
-    test_set_lineval = UCR2018(data=x_test, targets=y_test, transform=transform_lineval)
+    train_set_lineval = TsLoader(data=x_train, targets=y_train, transform=transform_lineval)
+    val_set_lineval = TsLoader(data=x_val, targets=y_val, transform=transform_lineval)
+    test_set_lineval = TsLoader(data=x_test, targets=y_test, transform=transform_lineval)
 
     train_loader_lineval = torch.utils.data.DataLoader(train_set_lineval, batch_size=128, shuffle=True,
                                                        num_workers=opt.num_workers)
@@ -121,53 +126,51 @@ def evaluation(x_train, y_train, x_val, y_val, x_test, y_test, nb_class, ckpt, o
     return test_acc, best_epoch
 
 
-def clustering_evaluation(x_train, y_train, x_val, y_val, x_test, y_test, nb_class, ckpt, opt, ckpt_tosave=None):
+def clustering_evaluation(x, y, cid, pid, inv, nb_class, ckpt, opt, ckpt_tosave=None):
     # no augmentations used for linear evaluation
     transform_lineval = transforms.Compose([transforms.ToTensor()])
+    data_loader = {}
 
-    train_set_lineval = UCR2018(data=x_train, targets=y_train, transform=transform_lineval)
-    val_set_lineval = UCR2018(data=x_val, targets=y_val, transform=transform_lineval)
-    test_set_lineval = UCR2018(data=x_test, targets=y_test, transform=transform_lineval)
-
-    train_loader_lineval = torch.utils.data.DataLoader(train_set_lineval, batch_size=128, shuffle=True,
-                                                       num_workers=opt.num_workers)
-    val_loader_lineval = torch.utils.data.DataLoader(val_set_lineval, batch_size=128, shuffle=False,
+    for s in x.keys():
+        dataset = TsLoader(data=x[s], targets=y[s], transform=transform_lineval)
+        data_loader[s] = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=(s != 'train'),
                                                      num_workers=opt.num_workers)
-    test_loader_lineval = torch.utils.data.DataLoader(test_set_lineval, batch_size=128, shuffle=False,
-                                                      num_workers=opt.num_workers)
-    signal_length = x_train.shape[1]
+    signal_length = x['train'].shape[1]
 
     # loading the saved backbone
     backbone_lineval = SimConv4().cuda()  # defining a raw backbone model
-
     checkpoint = torch.load(ckpt, map_location='cpu')
     backbone_lineval.load_state_dict(checkpoint)
     if ckpt_tosave:
         torch.save(backbone_lineval.state_dict(), ckpt_tosave)
-
     print(f'Linear evaluation [{opt.model_name}]')
     backbone_lineval.eval()
 
     # Clustering
+    features, labels = {}, {}
     with torch.no_grad():
+        for s in data_loader.keys():
+            features[s], labels[s] = get_features(backbone_lineval, data_loader[s], set_name=s)
 
-        # on training set
-        with tqdm(train_loader_lineval, unit="batch") as t_epoch:
-            for i, (data, target) in enumerate(t_epoch):
-                t_epoch.set_description(f"Clustering on the training set")
-                output = backbone_lineval(data.cuda()).detach()
-                """ Clustering starts here """
+        for s in data_loader.keys():
+            if s in ['train', 'val']:
+                continue
+            pid_unq = np.unique(pid[s])
+            for _pid in pid_unq:
+                idx = (pid[s] == _pid)
+                current_feat, current_label = features[s][idx], labels[s][idx]
+                din, dood = get_eval_results(features['train'][labels['train'] == 0],
+                                             current_feat[current_label == 0],
+                                             current_feat[current_label == 1],
+                                             None, opt)
 
-        # on validation set
-        with tqdm(val_loader_lineval, unit="batch") as t_epoch:
-            for i, (data, target) in enumerate(t_epoch):
-                t_epoch.set_description(f"Clustering on the validation set")
-                output = backbone_lineval(data.cuda()).detach()
-                """ Clustering starts here """
+                fig, ax = plt.subplots(1, 1, figsize=(400, 400))
+                # ax = ax.flatten()
+                ax.hist(din, bins=np.arange(0, 400), alpha=.5)
+                ax.hist(dood, bins=np.arange(0, 400), alpha=.5)
+                ax.set_title(f'Patient {_pid} [{s}' + f'mean distance: B[{din.mean():.1f}] vs. C[{dood.mean():.1f}]' +
+                             f', > 200: B[{np.sum(din > 200)}/{len(din)}] vs. C[{np.sum(dood > 200)}/{len(dood)}]')
+                ax.legend(['In-distribution', 'Out-of-distribution'])
+                plt.show()
 
-        # on test set
-        with tqdm(test_loader_lineval, unit="batch") as t_epoch:
-            for i, (data, target) in enumerate(t_epoch):
-                t_epoch.set_description(f"Clustering on the test set")
-                output = backbone_lineval(data.cuda()).detach()
-                """ Clustering starts here """
+    exit()

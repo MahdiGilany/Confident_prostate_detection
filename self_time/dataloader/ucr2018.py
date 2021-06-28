@@ -5,26 +5,13 @@ import torch.utils.data as data
 
 import self_time.utils.datasets as ds
 from self_time.dataloader.TSC_data_loader import TSC_data_loader
+from self_time.dataloader.time_series import TsLoader
 
 
-class UCR2018(data.Dataset):
+class UCR2018(TsLoader):
 
-    def __init__(self, data, targets, transform):
-        self.data = np.asarray(data, dtype=np.float32)
-        self.targets = np.asarray(targets, dtype=np.int64)
-        self.transform = transform
-
-    def __getitem__(self, index):
-        img, target = self.data[index], self.targets[index]
-        if self.transform is not None:
-            img_transformed = self.transform(img.copy())
-        else:
-            img_transformed = img
-
-        return img_transformed, target
-
-    def __len__(self):
-        return self.data.shape[0]
+    def __init__(self, *args, **kwargs):
+        super(UCR2018, self).__init__(*args, **kwargs)
 
 
 class MultiUCR2018_Intra(data.Dataset):
@@ -78,11 +65,11 @@ class MultiUCR2018_InterIntra(data.Dataset):
 
         if self.transform is not None:
             for _ in range(self.K):
-                img_transformed = self.transform(img.copy())
+                img_transformed = self.transform(img.copy()).squeeze()
                 img_cut0, img_cut1, label = self.transform_cut(img_transformed)
-                img_list.append(self.totensor_transform(img_transformed))
-                img_list0.append(self.totensor_transform(img_cut0))
-                img_list1.append(self.totensor_transform(img_cut1))
+                img_list.append(self.totensor_transform(img_transformed).unsqueeze(0))
+                img_list0.append(self.totensor_transform(img_cut0).unsqueeze(0))
+                img_list1.append(self.totensor_transform(img_cut1).unsqueeze(0))
                 label_list.append(label)
 
         return img_list, img_list0, img_list1, label_list, target

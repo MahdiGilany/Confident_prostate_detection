@@ -1,21 +1,19 @@
 # -*- coding: utf-8 -*-
 
-import torch
 import self_time.utils.transforms as transforms
 from self_time.dataloader.ucr2018 import *
 import torch.utils.data as data
 from self_time.model.model_RelationalReasoning import *
 from self_time.model.model_backbone import SimConv4
+from networks.inception1d import InceptionModel
 
 
-def pretrain_IntraSampleRel(x_train, y_train, opt):
-    K = opt.K
-    batch_size = opt.batch_size  # 128 has been used in the paper
-    tot_epochs = opt.epochs  # 400 has been used in the paper
-    feature_size = opt.feature_size
-    ckpt_dir = opt.ckpt_dir
+def get_transform(aug_type, prob=.2):
+    """
 
-    prob = 0.2  # Transform Probability
+    :param prob: Transform Probability
+    :return:
+    """
     raw = transforms.Raw()
     cutout = transforms.Cutout(sigma=0.1, p=prob)
     jitter = transforms.Jitter(sigma=0.2, p=prob)
@@ -38,11 +36,21 @@ def pretrain_IntraSampleRel(x_train, y_train, opt):
                        'none': [raw]}
 
     transforms_targets = list()
-    for name in opt.aug_type:
+    for name in aug_type:
         for item in transforms_list[name]:
             transforms_targets.append(item)
 
-    train_transform = transforms.Compose(transforms_targets)
+    transform = transforms.Compose(transforms_targets)
+    tensor_transform = transforms.ToTensor()
+    return transform, tensor_transform
+
+
+def pretrain_IntraSampleRel(x_train, y_train, opt):
+    K = opt.K
+    batch_size = opt.batch_size  # 128 has been used in the paper
+    tot_epochs = opt.epochs  # 400 has been used in the paper
+    feature_size = opt.feature_size
+    ckpt_dir = opt.ckpt_dir
 
     if '2C' in opt.class_type:
         cut_piece = transforms.CutPiece2C(sigma=opt.piece_size)
@@ -66,10 +74,10 @@ def pretrain_IntraSampleRel(x_train, y_train, opt):
         cut_piece = transforms.CutPiece8C(sigma=opt.piece_size)
         nb_class = 8
 
-    tensor_transform = transforms.ToTensor()
+    train_transform, tensor_transform = get_transform(opt.aug_type)
 
     backbone = SimConv4().cuda()
-    model = RelationalReasoning_Intra(backbone, feature_size, nb_class).cuda()
+    model = RelationalReasoning_Intra(backbone, backbone.feature_size, nb_class).cuda()
 
     train_set = MultiUCR2018_Intra(data=x_train, targets=y_train, K=K,
                                    transform=train_transform, transform_cut=cut_piece,
@@ -190,8 +198,9 @@ def pretrain_SelfTime(x_train, y_train, opt):
         cut_piece = transforms.CutPiece8C(sigma=opt.piece_size)
         nb_class = 8
 
-    backbone = SimConv4().cuda()
-    model = RelationalReasoning_InterIntra(backbone, feature_size, nb_class).cuda()
+    # backbone = SimConv4().cuda()
+    backbone = InceptionModel(3, 1, 30, 12, 15, use_residuals='default', self_train=True)
+    model = RelationalReasoning_InterIntra(backbone, nb_class).cuda()
 
     train_set = MultiUCR2018_InterIntra(data=x_train, targets=y_train, K=K,
                                         transform=train_transform, transform_cut=cut_piece,

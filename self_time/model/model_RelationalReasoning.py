@@ -202,9 +202,10 @@ class RelationalReasoning_Intra(torch.nn.Module):
 
 
 class RelationalReasoning_InterIntra(torch.nn.Module):
-    def __init__(self, backbone, feature_size=64, nb_class=3):
+    def __init__(self, backbone, nb_class=3):
         super(RelationalReasoning_InterIntra, self).__init__()
         self.backbone = backbone
+        feature_size = backbone.feature_size
 
         self.relation_head = torch.nn.Sequential(
             torch.nn.Linear(feature_size * 2, 256),
