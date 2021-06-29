@@ -217,7 +217,6 @@ class CoTeaching(Model):
 
                 total += y_batch.size(0)
                 correct += (F.softmax(out1, dim=1).argmax(dim=1) == torch.argmax(y_batch, dim=1)).sum().item()
-                break
 
         if writer is not None:
             for k in range(2):

@@ -1,7 +1,7 @@
 ssh -L 6007:localhost:6007 minht@rcl-nv1.ece.ub.ca
-cd /raid/home/minht/projects/prostate_teus/ProstateCancerClassification/Samareh/TMI/experiments
+cd /raid/home/minht/projects/prostate_teus/ProstateCancerClassification/experiments
 conda activate pytorch
-tensorboard --logdir /raid/home/minht/projects/prostate_teus/ProstateCancerClassification/Samareh/TMI/experiments --port=6007
+tensorboard --logdir /raid/home/minht/projects/prostate_teus/ProstateCancerClassificationV1/experiments --port=6007
 
 conda activate pytorch
 tensorboard --logdir /home/minh/PycharmProjects/prostate_cancer_classification/Samareh/TMI/experiments --port=6006

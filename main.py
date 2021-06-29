@@ -61,6 +61,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     """
     # Setup
     device = torch.device(f'cuda:{opt.gpus_id[0]}' if torch.cuda.is_available() else 'cpu')
+    state = 'val'
 
     # Construct model
     if model is None:  # For standalone evaluation
@@ -74,11 +75,11 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # Load test set
     if dataset_test is None:  # For standalone evaluation
         # train_stat is missing currently, the evaluation perhaps will be wrong
-        datasets, core_len, true_involvement, patient_id_bk, gs_bk = create_datasets_test(
+        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors = create_datasets_test(
             '/'.join([opt.data_source.data_root, opt.data_source.test_set]),
-            min_inv=0.4, state='test', norm=opt.normalize_input)
+            min_inv=0.4, state=state, norm=opt.normalize_input)
     else:  # For periodically testing
-        datasets, core_len, true_involvement, patient_id_bk, gs_bk = dataset_test
+        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors = dataset_test
 
     # Create dataloader to test data
     tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
@@ -87,12 +88,18 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     predictions, acc_s = model.eval(tst_dl, net_index=1)
 
     # Infer core-wise predictions
-    predicted_involvement = infer_core_wise(predictions, core_len)
+    predicted_involvement, prediction_maps = infer_core_wise(predictions, core_len, roi_coors)
 
     # Calculating & logging metrics
     scores = {'acc_s': acc_s}
     scores = compute_metrics(predicted_involvement, true_involvement,
                              current_epoch=current_epoch, verbose=True, scores=scores)
+
+    import pylab as plt
+    heatmaps_dir = opt.paths.result_dir + f'_heatmaps/{state}'
+    os.makedirs(heatmaps_dir, exist_ok=True)
+    for i, pm in enumerate(prediction_maps):
+        plt.imsave(f'{heatmaps_dir }/{i}_{true_involvement[i]:.2f}.png', pm, vmin=0, vmax=1, cmap='gray')
 
     net_interpretation(predicted_involvement, patient_id_bk,
                        true_involvement, gs_bk, opt.paths.result_dir,
