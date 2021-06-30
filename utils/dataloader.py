@@ -3,7 +3,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from .dataset import DatasetV1, to_categorical
 from tslearn.clustering import TimeSeriesKMeans
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import DataLoader
 
 
 def make_weights_for_balanced_classes(dataset, nclasses):

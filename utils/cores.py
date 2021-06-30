@@ -1,11 +1,12 @@
 import os
 import pickle
-import numpy as np
-import pylab as plt
-import h5py
 from typing import Union
 
+import h5py
+import numpy as np
+import pylab as plt
 from scipy.signal import hilbert
+from numpy.ma import masked_array
 from skimage.measure import regionprops
 
 from .bm_rf_convert import RFtoBM
@@ -34,13 +35,13 @@ def load_cores(pid=2, pth=r'/media/minh/My Passport/workspace/TeUS/ProstateVGH-2
 
 
 @timer
-def load_cores_h5py(patient_id: int, pth: str, core_indices: list = None):
+def load_cores_h5py(patient_id: int, pth: str, core_indices: list = None, suffix=''):
     """Load data from H5PY. This is sufficient to serve training purposes, not visualization.
     Pros: Fast & Convenient (pre-cropped RF images)
     Cons: current files do not contain B-Mode, core location, nor original RF images
     """
 
-    pth = '/'.join((pth, 'h5py', f'Patient{patient_id:03d}'))
+    pth = '/'.join((pth, 'h5py' + suffix, f'Patient{patient_id:03d}'))
     cores = []
     core_indices = range(12) if core_indices is None else core_indices
     for i in core_indices:  # enumerate(cores):
@@ -74,17 +75,17 @@ def rf2bm_wrapper_decorator(func):
             return func(core, heatmap, **kwargs)
 
         # Paste
-        core.heatmap = heatmap
+        core.heatmap = heatmap if heatmap is not None else core.heatmap
         for attr in ['rf', 'wp', 'roi', 'heatmap']:
             shape = original_shape if attr == 'rf' else [1, ] + list(original_shape[1:])
             setattr(core, attr, paste_bbox(getattr(core, attr), shape, core.metadata['bbox']))
 
         # Registration
-        core = func(core, heatmap, representative_rf=core.rf[-1], **kwargs)
+        core = func(core, core.heatmap, representative_rf=core.rf[-1], **kwargs)
 
         # Crop
         bbox_b = regionprops(core.wp_b)[0].bbox
-        for attr in ['rf_b', 'wp_b', 'roi_b', 'rf', 'wp', 'roi', 'heatmap']:
+        for attr in ['rf_b', 'wp_b', 'roi_b', 'heatmap_b', 'rf', 'wp', 'roi', 'heatmap']:
             bbox = bbox_b if '_b' in attr else core.metadata['bbox']
             setattr(core, attr, crop_bbox(getattr(core, attr), bbox))
 
@@ -124,9 +125,7 @@ def rf2bm_wrapper(core, heatmap: np.ndarray = None, verbose: bool = False, force
 
     # Heat map (2D grayscale)
     if heatmap is not None:
-        heatmap = np.asarray(RFtoBM(heatmap.squeeze(), prb_radius, arc, rf_depth, resolution, method='linear'))
-
-    core.heatmap = heatmap
+        core.heatmap_b = np.asarray(RFtoBM(heatmap.squeeze(), prb_radius, arc, rf_depth, resolution, method='linear'))
 
     if verbose:
         print('Done')
@@ -200,19 +199,30 @@ def preview_cores(cores, n_cols=3, fig_num=1, in_b_mode=True, dpi=250):
     """
     n_cols = int(min(len(cores), n_cols))
     n_rows = int(np.ceil(len(cores) / n_cols))
-    _, ax = plt.subplots(n_rows, n_cols, num=fig_num, dpi=dpi)
-    ax = ax.flatten()
+    fig, ax = plt.subplots(n_rows, n_cols, num=fig_num, dpi=dpi)
+    try:
+        ax = ax.flatten()
+    except:
+        ax = [ax, ]
     suffix = '_b' if in_b_mode else ''
+
     for i, c in enumerate(cores):
         ax[i].imshow(np.flipud(eval(f'c.rf{suffix}')), cmap='gray')
-        ax[i].contour(np.flipud(eval(f'c.wp{suffix}')), colors='yellow')
-        ax[i].contour(np.flipud(eval(f'c.roi{suffix}')), colors='red')
-        ax[i].set_title(f'Core {c.core_id} | {"Cancer" if c.label else "Benign"} | GS {c.gs}',
-                        fontsize=9)
+        ax[i].contour(np.flipud(eval(f'c.wp{suffix}')), colors='yellow', linewidths=.3)
+        ax[i].contour(np.flipud(eval(f'c.roi{suffix}')), colors='red', linewidths=.3)
+
+        heatmap = masked_array(eval(f'c.heatmap{suffix}'), eval(f'c.roi{suffix}') == 0)
+        predicted_inv = (eval(f'c.heatmap{suffix}') > .5).sum() / (eval(f'c.roi{suffix}') == 1).sum()
+        ax[i].imshow(np.flipud(heatmap), cmap='jet', vmin=0, vmax=1)
+
+        ax[i].set_title(
+            f'Core {c.core_id} | {"Cancer" if c.label else "Benign"} | GS {c.metadata["PrimarySecondary"]} | {predicted_inv:.2f} [{c.metadata["CalculatedInvolvement"]}]',
+            fontsize=8)
     [_.axis('off') for _ in ax]
     plt.subplots_adjust(0, 0, 1, 1, .01, 0)
-    plt.suptitle(f'Patient {cores[0].patient_id}')
+    # plt.suptitle(f'Patient {cores[0].patient_id}')
     plt.show()
+    return fig
 
 
 def typed_property(name, expected_type, is_bin=False):
@@ -321,7 +331,11 @@ class Core:
     @inv.setter
     def inv(self, inv: Union[str, int]):
         if isinstance(inv, float):
-            assert 0 <= inv < 1.
+            try:
+                assert 0 <= inv <= 1.
+            except:
+                print(inv)
+                exit()
             self._inv = inv
         elif (inv is None) and ('Involvement' in self.metadata.keys()):
             self._inv = float(self.metadata['Involvement'])

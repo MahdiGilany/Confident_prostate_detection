@@ -8,21 +8,20 @@ from functools import partial
 
 from utils.query_metadata import query_patient_info, open_connection, close_connection
 from utils.misc import Logger, save_pickle, load_pickle
-from utils.cores import load_cores_h5py
+from utils.cores import load_cores_h5py as _load_cores_h5py
 
 set_names = ['train', 'val', 'test']
 pth = '/media/minh/My Passport/workspace/TeUS/ProstateVGH-2/Data'
-sys.stdout = Logger(f'{os.path.basename(__file__)[:-3]}')
 
 
-def filter_cores(patient_id, core_indices):
+def load_cores_h5py(patient_id, core_indices):
     """
 
     :param patient_id:
     :param core_indices:
     :return:
     """
-    cores = load_cores_h5py(patient_id, pth, core_indices, skip_timer=True)
+    cores = _load_cores_h5py(patient_id, pth, core_indices, skip_timer=True)
     return [c for c in cores if c.core_id in core_indices]
 
 
@@ -33,7 +32,7 @@ def extract(core_indices, patient_id):
     :param patient_id:
     :return:
     """
-    cores = filter_cores(patient_id, core_indices[patient_id])
+    cores = load_cores_h5py(patient_id, core_indices[patient_id])
     outputs = {
         'rf': [c.rf[:, c.roi[0] == 1].T for c in cores],
         'roi_coors': [np.where(c.roi[0] == 1) for c in cores],
@@ -112,5 +111,7 @@ def create_dataset(output_dir, output_filename):
 if __name__ == '__main__':
     dirname = '../datasets/'
     filename = 'BK_RF_P1_140_balance__20210203-175808_mimic.pkl'
-    # create_dataset(dirname, filename)
+    sys.stdout = Logger(f'{os.path.basename(__file__)[:-3]}')
+
+    create_dataset(dirname, filename)
     add_metadata(dirname, filename)

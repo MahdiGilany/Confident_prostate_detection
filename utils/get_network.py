@@ -53,6 +53,9 @@ def construct_network(device, opt):
     :param opt:
     :return:
     """
+    if opt.is_eval:
+        return _construct_network(device, opt, opt.backbone, opt.tasks_num_class[0])
+
     num_class = 1 if opt.self_train else opt.tasks_num_class[0]
     num_class += 1 if opt.loss_name == 'abc' else 0
 
