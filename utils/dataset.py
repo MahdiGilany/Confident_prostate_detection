@@ -1,4 +1,5 @@
 import hdf5storage
+import matplotlib.pyplot as plt
 import numpy as np
 
 import torch
@@ -61,8 +62,8 @@ class DatasetV1(torch.utils.data.Dataset):
     """Characterizes a dataset for PyTorch"""
     from typing import Union
 
-    def __init__(self, data, label, location,
-                 aug_type: Union[list, str] = ('G2',), n_views=1):
+    def __init__(self, data, label, location, inv,
+                 aug_type: Union[list, str] = ('G2',), n_views=1, transform_prob=.5):
         # assert all(tensors[0].size(0) == tensor.size(0) for tensor in tensors)
         # from tsaug import TimeWarp, Crop, Quantize, Drift, Reverse, Convolve
 
@@ -71,9 +72,12 @@ class DatasetV1(torch.utils.data.Dataset):
         self.location = torch.tensor(location, dtype=torch.uint8)
         self.n_views = n_views
         self.aug_type = aug_type
+        self.inv_pred = None
         self.transform, self.to_tensor_transform = get_transform(
-            aug_type if isinstance(aug_type, list) else [aug_type, ]
+            aug_type if isinstance(aug_type, list) else [aug_type, ],
+            prob=transform_prob,
         )
+        self.inv = torch.tensor(inv, dtype=torch.float32)
         # self.transform = (
         #         TimeWarp() * 1  # random time warping 5 times in parallel
         #         # + Crop(size=170)  # random crop subsequences with length 300
@@ -83,18 +87,31 @@ class DatasetV1(torch.utils.data.Dataset):
         #         + Convolve(window='flattop', size=11, prob=.25)
         # )
 
+    @property
+    def inv_pred(self):
+        return self._inv_pred
+
+    @inv_pred.setter
+    def inv_pred(self, inv_pred):
+        if inv_pred is not None:
+            self._inv_pred = torch.tensor(inv_pred, dtype=torch.float32)
+        else:
+            self._inv_pred = None
+
     def __getitem__(self, index):
         x = self.data[index]
         y = self.label[index]
         z = self.location[index]
+        if self.inv_pred is None:
+            loss_weight = 1
+        else:
+            loss_weight = torch.exp(torch.abs(self.inv_pred[index] - self.inv[index])).item()
+            # loss_weight *= 2 if y == 0 else 1
 
         if self.aug_type == 'none':
             return x, y, z, index
 
-        img_list = list()
-        label_list = list()
-        loc_list = list()
-        idx_list = list()
+        img_list, label_list, loc_list, idx_list, loss_weight_list = [], [], [], [], []
 
         if self.transform is not None:
             # img_transformed = self.transform.augment(x)
@@ -105,7 +122,8 @@ class DatasetV1(torch.utils.data.Dataset):
                 loc_list.append(z)
                 label_list.append(y)
                 idx_list.append(index)
-        return img_list, label_list, loc_list, idx_list
+                loss_weight_list.append(loss_weight)
+        return img_list, label_list, loc_list, idx_list, loss_weight_list
 
     def __len__(self):
         return self.label.size(0)
@@ -123,16 +141,96 @@ class DatasetV1(torch.utils.data.Dataset):
         self.siginv = torch.tensor(newones, dtype=torch.uint8)
 
 
-def create_datasets_v1(data_file, norm=None, min_inv=0.4, augno=0, inv_state='none', aug_type='none', n_views=4):
+def remove_empty_data(input_data, set_name, p_thr=.2):
+    """
+
+    :param input_data:
+    :param set_name:
+    :param p_thr: threshold of zero-percentage
+    :return:
+    """
+    data = input_data[f"data_{set_name}"]
+    s = [(data[i] == 0).sum() for i in range(len(data))]
+    zero_percentage = [s[i] / np.prod(data[i].shape) for i in range(len(data))]
+    include_idx = np.array([i for i, p in enumerate(zero_percentage) if p < p_thr])
+    if len(include_idx) == 0:
+        return input_data
+
+    for k in input_data.keys():
+        if set_name in k:
+            if isinstance(input_data[k], list):
+                input_data[k] = [_ for i, _ in enumerate(input_data[k]) if i in include_idx]
+            else:
+                input_data[k] = input_data[k][include_idx]
+    return input_data
+
+
+def norm_01(x):
+    return (x - x.min(axis=1, keepdims=True)) / (x.max(axis=1, keepdims=True) - x.min(axis=1, keepdims=True))
+
+
+def stratify_groups(groups, num_time_series, marked_array, mark_low_threshold=.2):
+    """Get a number of time-series within each group"""
+    row_idx = []
+    group_unique = np.unique(groups)
+    for g in group_unique:
+        # Find the time series in group g & mark off those already selected in previous iterations
+        is_group = groups == g
+        is_group_marked = is_group * marked_array
+
+        # Reset marked array if 80% of the time series in the current group have been selected
+        if (is_group_marked.sum() / is_group.sum()) < mark_low_threshold:
+            is_group_marked = is_group
+            marked_array[is_group] = True
+
+        # Randomly selected time-series within those of the current group
+        replace = True if np.sum(is_group_marked) < num_time_series else False
+        row_idx.append(np.random.choice(np.where(is_group_marked)[0], num_time_series, replace=replace))
+        # print(g, (sum(is_group_marked) / sum(is_group)))
+
+        marked_array[row_idx[-1]] = False
+    return np.concatenate(row_idx), marked_array
+
+
+def normalize(input_data, set_name):
+    for i, x in enumerate(input_data[f'data_{set_name}']):
+        input_data[f'data_{set_name}'][i] = norm_01(x.astype('float32'))
+    return input_data
+
+
+def preprocess(input_data, p_thr=.2, to_norm=True):
+    """
+    Remove data points which have percentage of zeros greater than p_thr
+    :param input_data:
+    :param p_thr:
+    :param to_norm:
+    :return:
+    """
+    for set_name in ['train', 'val', 'test']:
+        input_data = remove_empty_data(input_data, set_name, p_thr)
+        if to_norm:
+            input_data = normalize(input_data, set_name)
+    return input_data
+
+
+def create_datasets_v1(data_file, norm=None, min_inv=0.4, augno=0, inv_state='none', aug_type='none', n_views=4,
+                       to_norm=False):
     input_data = load_pickle(data_file)
+    # unsup_data = load_pickle(data_file.replace('mimic', 'unsup'))
+    input_data = preprocess(input_data, to_norm=to_norm)
+
     data_train = input_data["data_train"]
-    label_train = input_data["label_train"]
     inv_train = input_data["inv_train"]
+    label_train = (inv_train > 0).astype('uint8')
     CoreN_train = input_data["corename_train"].astype(np.float)
+
+    # data_train = data_train + input_data["data_val"]
+    # label_train = np.concatenate([label_train, input_data["label_val"]], axis=0)
+    # inv_train = np.concatenate([inv_train, input_data["inv_val"]], axis=0)
+    # CoreN_train = np.concatenate([CoreN_train, input_data["corename_val"].astype(np.float)])
 
     included_idx = [True for lid in label_train]
     included_idx = [False if inv < min_inv and inv > 0 else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
-
     corelen_train = []
 
     # Working with BK dataset
@@ -149,20 +247,22 @@ def create_datasets_v1(data_file, norm=None, min_inv=0.4, augno=0, inv_state='no
             temp = np.tile(CoreN_train[i], data_train[i].shape[0])
             name_train.append(temp.reshape((data_train[i].shape[0], 8)))
             corelen_train.append(data_train[i].shape[0])
-            if inv_train[i] == 0:
-                siginv_train.append(np.repeat(inv_train[i], data_train[i].shape[0]))
-            else:
-                siginv_train.append(np.repeat(inv_train[i], data_train[i].shape[0]))
+            siginv_train.append(np.repeat(inv_train[i], data_train[i].shape[0]))
 
             coreno_train.append(np.repeat(corecounter, data_train[i].shape[0]))
             corecounter += 1
 
     signal_train = np.concatenate(bags_train).astype('float32')
-    signal_train, train_stats = preprocess(signal_train)
+    # if normalize:
+    #     signal_train, train_stats = preprocess(signal_train)
+    # else:
+    #     train_stats = None
+    train_stats = None
     target_train = np.concatenate(target_train)
     name_train = np.concatenate(name_train)
     label_train = to_categorical(target_train)
-    trn_ds = DatasetV1(signal_train, label_train, name_train,
+    siginv_train = np.concatenate(siginv_train)
+    trn_ds = DatasetV1(signal_train, label_train, name_train, siginv_train,
                        aug_type=aug_type, n_views=n_views)  # ['magnitude_warp', 'time_warp'])
 
     # for s in ['train', 'val', 'test']:
@@ -175,7 +275,132 @@ def create_datasets_v1(data_file, norm=None, min_inv=0.4, augno=0, inv_state='no
     test_set = create_datasets_test(None, min_inv=0.4, state='test', norm=norm, input_data=input_data,
                                     train_stats=train_stats)
 
-    return trn_ds, inv_train[included_idx], corelen_train, train_set, val_set, test_set
+    return trn_ds, train_set, val_set, test_set
+
+
+class DatasetV2(torch.utils.data.Dataset):
+    """Characterizes a dataset for PyTorch"""
+    from typing import Union
+
+    def __init__(self, data, label, location, inv, groups,
+                 aug_type: Union[list, str] = ('G2',), n_views=1, transform_prob=.2,
+                 time_series_per_group=16):
+        # assert all(tensors[0].size(0) == tensor.size(0) for tensor in tensors)
+        from tsaug import TimeWarp, Crop, Quantize, Drift, Reverse, Convolve
+
+        self.data = torch.tensor(data, dtype=torch.float32) if aug_type == 'none' else data
+        self.label = torch.tensor(label, dtype=torch.uint8)
+        self.location = torch.tensor(location, dtype=torch.uint8)
+        self.n_views = n_views
+        self.aug_type = aug_type
+        self.inv_pred = None
+        self.transform, self.to_tensor_transform = get_transform(
+            aug_type if isinstance(aug_type, list) else [aug_type, ],
+            prob=transform_prob,
+        )
+        # self.transform = (
+        #         TimeWarp() * 1  # random time warping 5 times in parallel
+        #         # + Crop(size=170)  # random crop subsequences with length 300
+        #         + Quantize(n_levels=[10, 20, 30])  # random quantize to 10-, 20-, or 30- level sets
+        #         + Reverse() @ 0.5  # with 50% probability, reverse the sequence
+        #         + Drift(max_drift=(0.1, 0.5)) @ 0.8  # with 80% probability, random drift the signal up to 10% - 50%
+        #         + Convolve(window='flattop', size=11, prob=.25)
+        # )
+        self.inv = torch.tensor(inv, dtype=torch.float32)
+        self.time_series_per_group = time_series_per_group
+        self.groups = groups
+        self.marked_array = [np.ones((d.shape[0]), dtype='bool') for d in self.data]
+
+    @property
+    def inv_pred(self):
+        return self._inv_pred
+
+    @inv_pred.setter
+    def inv_pred(self, inv_pred):
+        if inv_pred is not None:
+            self._inv_pred = torch.tensor(inv_pred, dtype=torch.float32)
+        else:
+            self._inv_pred = None
+
+    def __getitem__(self, index):
+        row_idx, self.marked_array[index] = stratify_groups(self.groups[index], self.time_series_per_group,
+                                                            self.marked_array[index])
+        x = self.data[index][row_idx]
+        y = self.label[index]
+        z = self.location[index]
+        if self.inv_pred is None:
+            loss_weight = 1
+        else:
+            loss_weight = torch.exp(torch.abs(self.inv_pred[index] - self.inv[index])).item()
+            # loss_weight *= 2 if y == 0 else 1
+
+        if self.aug_type == 'none':
+            return x, y, z, index
+
+        img_list, label_list, loc_list, idx_list, loss_weight_list = [], [], [], [], []
+        if self.transform is not None:
+            # img_list = list(self.to_tensor_transform(self.transform.augment(x)))  # .unsqueeze(0)
+            # for _x in x:
+            img_list = list(x)
+            for i in range(x.shape[0]):
+                for _ in range(self.n_views):
+                    # img_transformed = self.transform(_x[..., np.newaxis]).squeeze()
+                    # img_list.append(self.to_tensor_transform(img_transformed))  # .unsqueeze(0)
+                    # img_list.append(_x)
+                    loc_list.append(z)
+                    label_list.append(y)
+                    idx_list.append(index)
+                    loss_weight_list.append(loss_weight)
+        return img_list, label_list, loc_list, idx_list, loss_weight_list
+
+    def __len__(self):
+        return self.label.size(0)
+
+    def __updateitem__(self, newones):
+        'update labels'
+        # Select sample
+        # to_categorical(newones)
+        newones.shape
+        self.label = torch.tensor(newones, dtype=torch.uint8)
+
+    def __updateinv__(self, newones):
+        'update labels'
+        # Select sample
+        self.siginv = torch.tensor(newones, dtype=torch.uint8)
+
+
+def create_datasets_v2(data_file, norm=None, min_inv=0.4, aug_type='none', n_views=4, to_norm=False):
+    input_data = load_pickle(data_file)
+    # unsup_data = load_pickle(data_file.replace('mimic', 'unsup'))
+    input_data = preprocess(input_data, to_norm=to_norm)
+
+    data_train = input_data["data_train"]
+    inv_train = input_data["inv_train"]
+    label_train = to_categorical((inv_train > 0).astype('uint8'))
+    CoreN_train = input_data["corename_train"].astype(np.float)
+    groups_train = load_pickle(data_file.replace('.pkl', '_groups.pkl'))['nc30']
+
+    included_idx = [False if ((inv < min_inv) and (inv > 0)) else True for inv in inv_train]
+
+    # Filter unwanted cores
+    label_train = label_train[included_idx]
+    inv_train = inv_train[included_idx]
+    CoreN_train = CoreN_train[included_idx]
+    data_train = [data_train[i].astype('float32') for i, included in enumerate(included_idx) if included]
+    groups_train = [groups_train[i] for i, included in enumerate(included_idx) if included]
+
+    # Create training dataset
+    trn_ds = DatasetV2(data_train, label_train, CoreN_train, inv_train, groups=groups_train,
+                       aug_type=aug_type, n_views=n_views)  # ['magnitude_warp', 'time_warp'])
+
+    train_set = create_datasets_test(None, min_inv=0.4, state='train', norm=norm, input_data=input_data,
+                                     train_stats=None)
+    val_set = create_datasets_test(None, min_inv=0.4, state='val', norm=norm, input_data=input_data,
+                                   train_stats=None)
+    test_set = create_datasets_test(None, min_inv=0.4, state='test', norm=norm, input_data=input_data,
+                                    train_stats=None)
+
+    return trn_ds, train_set, val_set, test_set
 
 
 def create_datasets_test(data_file, state, norm='Min_Max', min_inv=0.4, augno=0, inv_state='normal', input_data=None,
@@ -185,15 +410,14 @@ def create_datasets_test(data_file, state, norm='Min_Max', min_inv=0.4, augno=0,
 
     data_test = input_data["data_" + state]  # [0]
     roi_coors_test = input_data['roi_coors_' + state]
-    label_test = input_data["label_" + state]  # [0]
     label_inv = input_data["inv_" + state]  # [0]
+    label_test = (label_inv > 0).astype('uint8')
     CoreN_test = input_data["corename_" + state]
     patient_id_bk = input_data["PatientId_" + state]  # [0]
     involvement_bk = input_data["inv_" + state]  # [0]
     gs_bk = np.array(input_data["GS_" + state])  # [0]
 
-    included_idx = [True for _ in label_test]
-    included_idx = [False if (inv < min_inv) and (inv > 0) else tr_idx for inv, tr_idx in zip(label_inv, included_idx)]
+    included_idx = [False if ((inv < min_inv) and (inv > 0)) else True for inv in label_inv]
 
     corelen = []
     target_test = []
@@ -252,7 +476,7 @@ def create_datasets_test(data_file, state, norm='Min_Max', min_inv=0.4, augno=0,
     return tst_ds, corelen, label_inv, patient_id_bk, gs_bk, roi_coors_test
 
 
-def preprocess(x_train):
+def _preprocess(x_train):
     # Normalize
     x_train_max = np.max(x_train)
     x_train_min = np.min(x_train)

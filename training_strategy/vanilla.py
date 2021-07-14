@@ -81,6 +81,7 @@ class Model:
         if device:
             self.device = device
         outputs = []
+        entropic_scores = []
         total = correct = 0
 
         # apply model on test signals
@@ -89,12 +90,17 @@ class Model:
             pred = self.infer(x_raw, n_batch, mode='test')
             pred = F.softmax(pred, dim=1)
 
+            probabilities = pred  # torch.nn.Softmax(dim=1)(pred)
+            entropies = -(probabilities * torch.log(probabilities)).sum(dim=1)
+            entropic_scores.append((-entropies).cpu().numpy())
+
             outputs.append(pred.cpu().numpy())
             total += y_batch.size(0)
             correct += (pred.argmax(dim=1) == torch.argmax(y_batch, dim=1)).sum().item()
 
         outputs = np.concatenate(outputs)
-        return outputs, correct / total
+        entropic_scores = np.concatenate(entropic_scores)
+        return outputs, entropic_scores, correct / total
 
     def forward_backward_semi_supervised(self, *args, **kwargs):
         pass

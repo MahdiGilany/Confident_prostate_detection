@@ -15,10 +15,11 @@ class IsoMaxLossFirstPart(nn.Module):
 
     def forward(self, features):
         distances = F.pairwise_distance(features.unsqueeze(2), self.weights.t().unsqueeze(0), p=2)
-        distances_protoc = F.pairwise_distance(self.weights.unsqueeze(2),
-                                               self.weights.t().unsqueeze(0)).sum()
-        logits = distances - distances_protoc
-        return -logits
+        # distances_protoc = F.pairwise_distance(self.weights.unsqueeze(2),
+        #                                        self.weights.t().unsqueeze(0)).sum()
+        # logits = distances - distances_protoc
+        logits = -distances
+        return logits
 
     def extra_repr(self):
         return 'in_features={}, out_features={}'.format(self.in_features, self.out_features)

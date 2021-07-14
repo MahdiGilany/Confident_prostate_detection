@@ -83,12 +83,22 @@ class InceptionModel(nn.Module):
         # self.pos_encoder2 = nn.Sequential(
         #     nn.Dropout(.5),
         #     nn.Linear(linear_in, channels[-1]), nn.PReLU(), nn.BatchNorm1d(channels[-1]))
+
         self.linear00 = nn.Linear(channels[-1], channels[-1])
         self.linear01 = IsoMaxLossFirstPart(channels[-1], num_pred_classes)
-        self.linear10 = nn.Linear(channels[-1], channels[-1])
-        self.linear11 = IsoMaxLossFirstPart(channels[-1], num_positions)
+        # self.fc = IsoMaxLossFirstPart(channels[-1], num_pred_classes)
+
+        # self.linear10 = nn.Linear(channels[-1], channels[-1])
+        # self.linear11 = IsoMaxLossFirstPart(channels[-1], num_positions)
 
         # self.linear = nn.Linear(in_features=channels[-1], out_features=num_pred_classes)
+
+        # for m in self.modules():
+        #     if isinstance(m, nn.Conv1d):
+        #         nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        #     elif isinstance(m, (nn.BatchNorm1d, nn.GroupNorm)):
+        #         nn.init.constant_(m.weight, 1)
+        #         nn.init.constant_(m.bias, 0)
 
     @staticmethod
     def _expand_to_blocks(value: Union[int, bool, List[int], List[bool]],
@@ -106,17 +116,19 @@ class InceptionModel(nn.Module):
         if self.self_train:
             return F.normalize(x, dim=1)
         out1 = self.linear01(F.relu(self.linear00(x)))
-        if self.num_positions > 0:
-            # x = self.pos_encoder1(torch.cat((x, args[0].float()), 1))
-            # x = self.pos_encoder2(torch.cat((x, args[0].float()), 1))
-            # x = self.pos_encoder(torch.cat((x, args[0].float()), 1))
-            # if self.num_positions > 0:
-            #     x = self.pos_encoder1(torch.cat((x, args[0].float()), 1))
-            #     x = self.pos_encoder2(torch.cat((x, args[0].float()), 1))
-            # else:
-            #     x = self.pos_encoder2(self.pos_encoder1(x))
-            out2 = self.linear11(F.relu(self.linear10(x)))
-            return out1, out2
+        # out1 = self.fc(x)
+
+        # if self.num_positions > 0:
+        #     # x = self.pos_encoder1(torch.cat((x, args[0].float()), 1))
+        #     # x = self.pos_encoder2(torch.cat((x, args[0].float()), 1))
+        #     # x = self.pos_encoder(torch.cat((x, args[0].float()), 1))
+        #     # if self.num_positions > 0:
+        #     #     x = self.pos_encoder1(torch.cat((x, args[0].float()), 1))
+        #     #     x = self.pos_encoder2(torch.cat((x, args[0].float()), 1))
+        #     # else:
+        #     #     x = self.pos_encoder2(self.pos_encoder1(x))
+        #     out2 = self.linear11(F.relu(self.linear10(x)))
+        #     return out1, out2
         return out1
 
 

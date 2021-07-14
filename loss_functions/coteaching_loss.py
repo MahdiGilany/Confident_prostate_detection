@@ -5,7 +5,6 @@ from torch.nn import functional as F
 from loss_functions.isomax import IsoMaxLossSecondPart
 from .misc import f_score
 
-
 from utils.get_loss_function import get_loss_function
 
 
@@ -38,7 +37,6 @@ def loss_coteaching(
 
     class_weights : Tensor array, shape (Number of classes x 1), Default: None
       A np.torch.tensor list of length number of classes with weights
-    relax: None, 0 or 1 (binary)
     """
     loss_func = kwargs['loss_func'] if 'loss_func' in kwargs.keys() else [F.cross_entropy, F.cross_entropy]
     loss_func1, loss_func2 = loss_func
@@ -71,6 +69,10 @@ def loss_coteaching(
     ind_1_update = balance_clipping(t, ind_1_update, num_classes)
     ind_2_update = balance_clipping(t, ind_2_update, num_classes)
 
+    # Randomly replacing indices of benign samples
+    # ind_1_update = random_replacing(t, ind_1_update)
+    # ind_2_update = random_replacing(t, ind_2_update)
+
     # loss_1_update = F.cross_entropy(y_1[ind_2_update], t[ind_2_update], reduction='none')
     # loss_2_update = F.cross_entropy(y_2[ind_1_update], t[ind_1_update], reduction='none')
 
@@ -85,10 +87,14 @@ def loss_coteaching(
         # weight=class_weights_1,
         sub_index=ind_1_update, **kwargs)
 
+    loss_1_update *= kwargs['loss_weights'][ind_2_update]
+    loss_2_update *= kwargs['loss_weights'][ind_1_update]
+
     return (
         torch.sum(loss_1_update) / len(loss_1_update),
         torch.sum(loss_2_update) / len(loss_2_update),
-        get_chosen_index(t, ind_1_update, ind_2_update),
+        [],
+        # get_chosen_index(t, ind_1_update, ind_2_update),
         # ind_12
     )
 
@@ -169,6 +175,21 @@ def get_chosen_index(target, ind_1, ind_2):
                          target[ind_2].sum().cpu().item() / len(ind_2)]
     }
     return ind
+
+
+def random_replacing(label, index, target_class=0):
+    """
+    Randomly replace the index of the target class
+    :param label:
+    :param index:
+    :param target_class:
+    :return:
+    """
+    target_idx = np.argwhere((label == target_class).cpu())[0]
+    length = len(index[label[index] == target_class])
+    new_idx = np.random.choice(target_idx, length, replace=False)
+    index[label[index] == target_class] = torch.tensor(new_idx)
+    return index
 
 
 def balance_clipping(label, index, num_classes=2):

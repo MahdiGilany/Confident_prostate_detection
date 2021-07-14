@@ -136,21 +136,22 @@ class CoTeaching(Model):
         idx_unsup[idx_sup] = 0
 
         out1, out2 = self.infer(x_raw[idx_sup], n_batch[idx_sup])
-        # loss1, loss2, ind = self.loss_func(out1, out2, torch.argmax(labels[idx_sup], dim=1), **kwargs)
-        loss1, loss2, ind = self.loss_func(out1[0], out2[0], torch.argmax(labels[idx_sup], dim=1), **kwargs)
-        activation1, activation2 = {}, {}
-        for net, activation in zip(self.network_list, [activation1, activation2]):
-            net.linear0.register_forward_hook(self.get_activation('linear0', activation))
-        out1_unsup, out2_unsup = self.infer(x_raw, n_batch)
+        loss1, loss2, ind = self.loss_func(out1, out2, torch.argmax(labels[idx_sup], dim=1), **kwargs)
+        # loss1, loss2, ind = self.loss_func(out1[0], out2[0], torch.argmax(labels[idx_sup], dim=1), **kwargs)
 
-        criteria_1 = torch.nn.CrossEntropyLoss().to(out1_unsup.device)
-        criteria_2 = torch.nn.CrossEntropyLoss().to(out2_unsup.device)
-        loss1_unsup = criteria_1(*info_nce_loss(activation1['linear0'], out1_unsup.device, n_views))
-        loss2_unsup = criteria_2(*info_nce_loss(activation2['linear0'], out2_unsup.device, n_views))
+        # activation1, activation2 = {}, {}
+        # for net, activation in zip(self.network_list, [activation1, activation2]):
+        #     net.linear00.register_forward_hook(self.get_activation('linear00', activation))
+        # out1_unsup, out2_unsup = self.infer(x_raw, n_batch)
+        #
+        # criteria_1 = torch.nn.CrossEntropyLoss().to(out1_unsup.device)
+        # criteria_2 = torch.nn.CrossEntropyLoss().to(out2_unsup.device)
+        # loss1_unsup = criteria_1(*info_nce_loss(activation1['linear00'], out1_unsup.device, n_views))
+        # loss2_unsup = criteria_2(*info_nce_loss(activation2['linear00'], out2_unsup.device, n_views))
 
-        # out1_unsup, out2_unsup = self.infer(x_raw[idx_unsup == 1], n_batch[idx_unsup == 1])
-        # loss1_unsup = F.kl_div(F.softmax(out1, dim=1), F.softmax(out1_unsup, dim=1), reduction='batchmean')
-        # loss2_unsup = F.kl_div(F.softmax(out2, dim=1), F.softmax(out2_unsup, dim=1), reduction='batchmean')
+        out1_unsup, out2_unsup = self.infer(x_raw[idx_unsup == 1], n_batch[idx_unsup == 1])
+        loss1_unsup = F.kl_div(F.softmax(out1, dim=1), F.softmax(out1_unsup, dim=1), reduction='batchmean')
+        loss2_unsup = F.kl_div(F.softmax(out2, dim=1), F.softmax(out2_unsup, dim=1), reduction='batchmean')
 
         loss1 = loss1 + loss1_unsup
         loss2 = loss2 + loss2_unsup
@@ -186,12 +187,13 @@ class CoTeaching(Model):
             t_epoch.set_description(f"Epoch {epoch}")
             for i, batch in enumerate(t_epoch):
                 if self.aug_type != 'none':
-                    x_raw, y_batch, n_batch, index = [torch.cat(_, 0).to(self.device) for _ in batch]
+                    x_raw, y_batch, n_batch, index, loss_weights = [torch.cat(_, 0).to(self.device) for _ in batch]
                 else:
-                    x_raw, y_batch, n_batch, index = [_.to(self.device) for _ in batch]
+                    x_raw, y_batch, n_batch, index, loss_weights = [_.to(self.device) for _ in batch]
 
                 out1, out2, loss1, loss2, extra = self.forward_backward(
                     x_raw.unsqueeze(1), n_batch, y_batch,
+                    loss_weights=loss_weights,
                     forget_rate=forget_rate,
                     step=epoch * i,
                     index=index,
@@ -209,28 +211,28 @@ class CoTeaching(Model):
                                   opt1_lr=self.optimizer1.param_groups[0]['lr'],
                                   opt2_lr=self.optimizer2.param_groups[0]['lr'])
 
-                if 'ind' in extra.keys():
-                    ind = extra['ind']
-                    [all_ind[k].extend(ind[k]) for k in ind.keys()]
+                # if 'ind' in extra.keys():
+                #     ind = extra['ind']
+                #     [all_ind[k].extend(ind[k]) for k in ind.keys()]
                 if 'unc' in extra.keys():
                     unc_list.append(extra['unc'])
 
                 total += y_batch.size(0)
                 correct += (F.softmax(out1, dim=1).argmax(dim=1) == torch.argmax(y_batch, dim=1)).sum().item()
 
-        if writer is not None:
-            for k in range(2):
-                writer.add_histogram(f'Benign_{k + 1}',
-                                     np.concatenate([_ for (i, _) in enumerate(all_ind['benign']) if i % 2 == k]),
-                                     epoch
-                                     )
-                writer.add_histogram(f'Cancer_{k + 1}',
-                                     np.concatenate([_ for (i, _) in enumerate(all_ind['cancer']) if i % 2 == k]),
-                                     epoch
-                                     )
-                writer.add_histogram(f'cancer_percentage_{k + 1}',
-                                     np.array([_ for (i, _) in enumerate(all_ind['cancer_ratio']) if i % 2 == k]),
-                                     epoch)
+        # if writer is not None:
+        #     for k in range(2):
+        #         writer.add_histogram(f'Benign_{k + 1}',
+        #                              np.concatenate([_ for (i, _) in enumerate(all_ind['benign']) if i % 2 == k]),
+        #                              epoch
+        #                              )
+        #         writer.add_histogram(f'Cancer_{k + 1}',
+        #                              np.concatenate([_ for (i, _) in enumerate(all_ind['cancer']) if i % 2 == k]),
+        #                              epoch
+        #                              )
+        #         writer.add_histogram(f'cancer_percentage_{k + 1}',
+        #                              np.array([_ for (i, _) in enumerate(all_ind['cancer_ratio']) if i % 2 == k]),
+        #                              epoch)
         return loss1.item() + loss2.item(), correct / total
 
     def eval(self, tst_dl, device=None, net_index=1):
@@ -242,8 +244,7 @@ class CoTeaching(Model):
         :return: outputs and signal-wise accuracy
         """
         [_.eval() for _ in self.network_list]
-        outputs, acc = super(CoTeaching, self).eval(tst_dl, device)
-        return outputs, acc
+        return super(CoTeaching, self).eval(tst_dl, device)
 
 
 class CoTeachingMultiTask(CoTeaching):

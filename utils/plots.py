@@ -101,6 +101,7 @@ def plot_confusion_matrix(y_true, y_pred, classes,
 
 
 def net_interpretation(predicted_label, patient_id, involvement, gleason_score, result_dir=None,
+                       ood=None,
                        cct=(0.2, 0.6, 1), cbt=(0, 1, 0.6), cf=(1, 0.2, 0.6),
                        current_epoch=None, set_name='Test', writer=None, scores: dict = None):
     """
@@ -117,6 +118,7 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     :param set_name:
     :param writer:
     :param scores:
+    :param ood:
     :return:
     """
 
@@ -129,9 +131,9 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     predicted_label_th = np.array(predicted_label)
     predicted_label_th[predicted_label_th > 0.5] = 1
     predicted_label_th[predicted_label_th <= 0.5] = 0
-    plot_confusion_matrix(true_label, predicted_label_th, classes=['Benign', 'Cancer'], title='Confusion matrix')
-    plt.savefig(f'{result_dir}/{set_name}_confustion_matrix{current_epoch_str}.png')
-    plt.close()
+    # plot_confusion_matrix(true_label, predicted_label_th, classes=['Benign', 'Cancer'], title='Confusion matrix')
+    # plt.savefig(f'{result_dir}/{set_name}_confustion_matrix{current_epoch_str}.png')
+    # plt.close()
 
     andlabels = np.logical_and(predicted_label_th, true_label)
     # norLabels = len(np.where(predicted_label_th + true_label == 0)[0])
@@ -194,11 +196,11 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
         for k2 in range(inv.shape[1]):
             plt.text(k1, joblblpos[k1, k2], label[k1][k2] if inv[k1, k2] != 0 else '')
     # plt.savefig(f'{result_dir}/{set_name}_acc_per_core{current_epoch_str}.png')
+    ood_sum = np.array([-_ood.sum() for _ood in ood])
+    ood_normalized = ood_sum / ood_sum.sum()
 
     fig2 = plt.figure(2)
-    ax2 = sns.scatterplot(x=involvement, y=predicted_label)
-    ax2.set(ylim=[-.1, 1.1], xlim=[-.1, 1.1])
-    ax2.axis('square')
+    ax2 = sns.scatterplot(x=involvement, y=predicted_label, size=ood_normalized, legend=False)
     diag = np.arange(0, 1, .05)
     sns.lineplot(x=diag, y=diag, color='r', ax=ax2)
     ax2.axvspan(-.1, 0.1, -.1, .5, alpha=.2, facecolor='lightgreen')
@@ -207,6 +209,8 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     ax2.axvspan(0.11, 1.1, .51, 1., alpha=.2, facecolor='moccasin')
     ax2.axvline(x=.105, linewidth=.6, linestyle='--', color='black')
     ax2.axhline(y=.505, linewidth=.6, linestyle='--', color='black')
+    ax2.axis('square')
+    ax2.set(ylim=[-.1, 1.1], xlim=[-.1, 1.1])
     if scores is not None:
         ax1.set_title(f'ACC: {scores["acc"]:.2f} | ACC_B: {scores["acc_b"]:.2f} '
                       f'AUC: {scores["auc"]:.2f} | SEN: {scores["sen"]:.2f} | SPE: {scores["spe"]:.2f}')

@@ -7,7 +7,7 @@ def train(opt):
     writer = setup_tensorboard(opt)
 
     # Datasets / Dataloader
-    trn_ds, inv_train, core_len_train, train_set, val_set, test_set = create_datasets(
+    trn_ds, train_set, val_set, test_set = create_datasets(
         '/'.join([opt.data_source.data_root, opt.data_source.train_set]),
         norm=opt.normalize_input, aug_type=opt.aug_type, min_inv=opt.min_inv, n_views=opt.train.n_views)
     trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True)
@@ -23,10 +23,14 @@ def train(opt):
     best_acc = 0.
     print('Start model training')
     for epoch in range(opt.n_epochs):
+        # Employ semi-supervised learning after forget-rate reaches the peak value
+        # trn_ds.n_views = opt.train.n_views if epoch >= opt.train.coteaching.num_gradual else 1
+
+        # Training
         model.train(epoch, trn_dl, writer=writer)
 
         if (opt.train.val_interval > 0) and ((epoch + 1) % opt.train.val_interval == 0):
-            acc = evaluate(opt, model, val_set, epoch, set_name='Val', writer=writer)
+            acc, _ = evaluate(opt, model, val_set, epoch, set_name='Val', writer=writer)
 
             if acc >= best_acc:  # check validation accuracy
                 best_acc = acc
@@ -37,6 +41,7 @@ def train(opt):
         if (opt.test.test_interval > 0) and ((epoch + 1) % opt.test.test_interval == 0):
             evaluate(opt, model, test_set, epoch, set_name='Test', writer=writer)
             # testing on training set
+            # _, trn_ds.inv_pred = evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer)
             evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer)
 
     model.save(opt.paths.checkpoint_dir, 'final')
@@ -85,32 +90,36 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
 
     # Evaluation
-    predictions, acc_s = model.eval(tst_dl, net_index=1)
+    predictions, ood_scores, acc_s = model.eval(tst_dl, net_index=1)
 
     # Infer core-wise predictions
-    predicted_involvement, prediction_maps = infer_core_wise(predictions, core_len, roi_coors)
+    predicted_involvement, ood, prediction_maps = infer_core_wise(predictions, core_len, roi_coors, ood_scores)
 
     # Calculating & logging metrics
     scores = {'acc_s': acc_s}
     scores = compute_metrics(predicted_involvement, true_involvement,
                              current_epoch=current_epoch, verbose=True, scores=scores)
 
-    import pylab as plt
-    heatmaps_dir = opt.paths.result_dir + f'_heatmaps/{state}'
-    os.makedirs(heatmaps_dir, exist_ok=True)
-    for i, pm in enumerate(prediction_maps):
-        plt.imsave(f'{heatmaps_dir }/{i}_{true_involvement[i]:.2f}.png', pm, vmin=0, vmax=1, cmap='gray')
+    # import pylab as plt
+    # heatmaps_dir = opt.paths.result_dir + f'_heatmaps/{state}'
+    # os.makedirs(heatmaps_dir, exist_ok=True)
+    # for i, pm in enumerate(prediction_maps):
+    #     plt.imsave(f'{heatmaps_dir }/{i}_{true_involvement[i]:.2f}.png', pm, vmin=0, vmax=1, cmap='gray')
 
     net_interpretation(predicted_involvement, patient_id_bk,
                        true_involvement, gs_bk, opt.paths.result_dir,
+                       ood=ood,
                        current_epoch=current_epoch, set_name=set_name, writer=writer, scores=scores)
 
+    if set_name.lower() == 'train':
+        predicted_involvement = np.concatenate(
+            [np.repeat(pred_inv, cl) for (pred_inv, cl) in zip(predicted_involvement, core_len)])
     # Tensorboard logging
     if writer:
         for score_name, score in zip(scores.keys(), scores.values()):
             writer.add_scalar(f'{set_name}/{score_name.upper()}', score, current_epoch)
 
-    return scores['acc']
+    return scores['acc'], predicted_involvement
 
 
 def main():
