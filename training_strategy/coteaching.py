@@ -115,7 +115,7 @@ class CoTeaching(Model):
         [net.load_state_dict(torch.load(f'{checkpoint_dir}/{prefix}{sep}{name}_{i + 1}.pth'))
          for (i, net) in enumerate(self.network_list)]
 
-    def infer(self, x_raw, positions, mode='train'):
+    def infer(self, x_raw, positions=None, mode='train'):
         if mode == 'train':
             return self.net1(x_raw, positions), self.net2(x_raw, positions)
         # mode == test, torch.no_grad() was called outside
@@ -124,37 +124,50 @@ class CoTeaching(Model):
     @_Decorators.pre_forward
     def forward_backward(self, x_raw, n_batch, labels, *args, **kwargs):
         out1, out2 = self.infer(x_raw, n_batch)
-
         loss1, loss2, ind = self.compute_loss(out1, out2, labels, self.loss_func, **kwargs)
         self.optimize((loss1, loss2))
         return out1, out2, loss1, loss2, {'ind': ind}
 
     def forward_backward_semi_supervised(self, x_raw, n_batch, labels, *args, **kwargs):
-        n_views = kwargs['n_views']
-        idx_sup = np.arange(0, len(x_raw), n_views)
-        idx_unsup = np.ones(len(x_raw))
-        idx_unsup[idx_sup] = 0
 
+        n_views = kwargs['n_views']
+
+        idx_sup = np.arange(0, len(x_raw), n_views)
         out1, out2 = self.infer(x_raw[idx_sup], n_batch[idx_sup])
         loss1, loss2, ind = self.loss_func(out1, out2, torch.argmax(labels[idx_sup], dim=1), **kwargs)
-        # loss1, loss2, ind = self.loss_func(out1[0], out2[0], torch.argmax(labels[idx_sup], dim=1), **kwargs)
 
-        # activation1, activation2 = {}, {}
-        # for net, activation in zip(self.network_list, [activation1, activation2]):
-        #     net.linear00.register_forward_hook(self.get_activation('linear00', activation))
-        # out1_unsup, out2_unsup = self.infer(x_raw, n_batch)
-        #
-        # criteria_1 = torch.nn.CrossEntropyLoss().to(out1_unsup.device)
-        # criteria_2 = torch.nn.CrossEntropyLoss().to(out2_unsup.device)
-        # loss1_unsup = criteria_1(*info_nce_loss(activation1['linear00'], out1_unsup.device, n_views))
-        # loss2_unsup = criteria_2(*info_nce_loss(activation2['linear00'], out2_unsup.device, n_views))
+        if n_views > 1:
+            idx_unsup = np.ones(len(x_raw))
+            idx_unsup[idx_sup] = 0
+            # loss1, loss2, ind = self.loss_func(out1[0], out2[0], torch.argmax(labels[idx_sup], dim=1), **kwargs)
 
-        out1_unsup, out2_unsup = self.infer(x_raw[idx_unsup == 1], n_batch[idx_unsup == 1])
-        loss1_unsup = F.kl_div(F.softmax(out1, dim=1), F.softmax(out1_unsup, dim=1), reduction='batchmean')
-        loss2_unsup = F.kl_div(F.softmax(out2, dim=1), F.softmax(out2_unsup, dim=1), reduction='batchmean')
+            # activation1, activation2 = {}, {}
+            # for net, activation in zip(self.network_list, [activation1, activation2]):
+            #     net.linear00.register_forward_hook(self.get_activation('linear00', activation))
+            # out1_unsup, out2_unsup = self.infer(x_raw, n_batch)
+            #
+            # criteria_1 = torch.nn.CrossEntropyLoss().to(out1_unsup.device)
+            # criteria_2 = torch.nn.CrossEntropyLoss().to(out2_unsup.device)
+            # loss1_unsup = criteria_1(*info_nce_loss(activation1['linear00'], out1_unsup.device, n_views))
+            # loss2_unsup = criteria_2(*info_nce_loss(activation2['linear00'], out2_unsup.device, n_views))
 
-        loss1 = loss1 + loss1_unsup
-        loss2 = loss2 + loss2_unsup
+            out1_unsup, out2_unsup = self.infer(x_raw[idx_unsup == 1], )  # n_batch[idx_unsup == 1]
+            loss1_unsup = F.kl_div(F.softmax(out1, dim=1), F.softmax(out1_unsup, dim=1), reduction='batchmean')
+            loss2_unsup = F.kl_div(F.softmax(out2, dim=1), F.softmax(out2_unsup, dim=1), reduction='batchmean')
+
+            loss1 = loss1 + loss1_unsup
+            loss2 = loss2 + loss2_unsup
+
+        if kwargs['x_unsup'] is not None:
+            x_unsup = kwargs['x_unsup'].unsqueeze(1)
+            out_unsup_11, out_unsup_12 = self.infer(x_unsup[::2])
+            out_unsup_21, out_unsup_22 = self.infer(x_unsup[1::2])
+            loss_unsup_1 = F.kl_div(F.softmax(out_unsup_11, dim=1), F.softmax(out_unsup_21, dim=1),
+                                    reduction='batchmean')
+            loss_unsup_2 = F.kl_div(F.softmax(out_unsup_12, dim=1), F.softmax(out_unsup_22, dim=1),
+                                    reduction='batchmean')
+            loss1 += loss_unsup_1 * 1e-2
+            loss2 += loss_unsup_2 * 1e-2
 
         self.optimize((loss1, loss2))
         return out1, out2, loss1, loss2, {'ind': ind, 'idx_sup': idx_sup}
@@ -178,7 +191,7 @@ class CoTeaching(Model):
         """
         [_.train() for _ in self.network_list]
         correct, total = 0, 0
-        semi_supervised = trn_dl.dataset.n_views > 1
+        semi_supervised = (trn_dl.dataset.n_views > 1) or (trn_dl.dataset.unsup_data is not None)
         forget_rate = 0 if self.forget_rate_schedule is None else self.forget_rate_schedule[epoch]
         all_ind = {'benign': [], 'cancer': [], 'cancer_ratio': []}
         unc_list = []
@@ -187,10 +200,18 @@ class CoTeaching(Model):
             t_epoch.set_description(f"Epoch {epoch}")
             for i, batch in enumerate(t_epoch):
                 if self.aug_type != 'none':
-                    x_raw, y_batch, n_batch, index, loss_weights = [torch.cat(_, 0).to(self.device) for _ in batch]
+                    batch_data = [torch.cat(_, 0).to(self.device) for _ in batch]
                 else:
-                    x_raw, y_batch, n_batch, index, loss_weights = [_.to(self.device) for _ in batch]
+                    batch_data = [_.to(self.device) for _ in batch]
 
+                # Parse batch
+                x_raw, y_batch, n_batch, index, *extra_data = batch_data
+                if len(extra_data) == 2:
+                    loss_weights, x_unsup = extra_data
+                else:
+                    loss_weights, x_unsup = extra_data[0], None
+
+                # Forward & Backward
                 out1, out2, loss1, loss2, extra = self.forward_backward(
                     x_raw.unsqueeze(1), n_batch, y_batch,
                     loss_weights=loss_weights,
@@ -201,6 +222,7 @@ class CoTeaching(Model):
                     batch_size=trn_dl.batch_size,
                     semi_supervised=semi_supervised,
                     n_views=trn_dl.dataset.n_views,
+                    x_unsup=x_unsup,
                 )
                 if semi_supervised:  #
                     idx_sup = extra['idx_sup']

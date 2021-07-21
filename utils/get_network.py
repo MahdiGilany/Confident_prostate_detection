@@ -103,7 +103,7 @@ def get_network(backbone, device, in_channels, nb_class, num_positions=8,
 
         _net = InceptionModel if not variational else InceptionModelVariational
         net = _net(num_blocks, in_channels, out_channels=out_channels,
-                   bottleneck_channels=12, kernel_sizes=15, use_residuals='default',
+                   bottleneck_channels=32, kernel_sizes=15, use_residuals=True,
                    num_pred_classes=nb_class, self_train=self_train, num_positions=num_positions)
     elif backbone == 'inception_time':
         net = InceptionTime(c_in=in_channels, c_out=nb_class, bottleneck=16, ks=40, nb_filters=16,

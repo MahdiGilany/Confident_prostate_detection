@@ -8,14 +8,19 @@ def train(opt):
 
     # Datasets / Dataloader
     trn_ds, train_set, val_set, test_set = create_datasets(
-        '/'.join([opt.data_source.data_root, opt.data_source.train_set]),
-        norm=opt.normalize_input, aug_type=opt.aug_type, min_inv=opt.min_inv, n_views=opt.train.n_views)
+        data_file='/'.join([opt.data_source.data_root, opt.data_source.train_set]),
+        unlabelled_data_file='/'.join([opt.data_source.data_root, opt.data_source.unlabelled_set]),
+        norm=opt.normalize_input, aug_type=opt.aug_type, min_inv=opt.min_inv, n_views=opt.train.n_views,
+        unsup_aug_type=opt.unsup_aug_type,
+    )
     trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True)
     opt.num_samples = {'train': len(trn_ds), 'val': len(val_set[0]), 'test': len(test_set[0])}
 
     # Setup models and training strategy
     # ToDo: Multiple GPUS
-    device = torch.device(f'cuda:{opt.gpus_id[0]}') if torch.cuda.is_available() else 'cpu'
+    # device = torch.device(
+    #     f'cuda:{",".join([str(_) for _ in range(torch.cuda.device_count())])}') if torch.cuda.is_available() else 'cpu'
+    device = torch.device('cuda')
     network = construct_network(device, opt)
     model = get_model(opt, network, device, 'train',
                       classifier=construct_classifier(device, opt) if opt.self_train else None)
@@ -43,6 +48,10 @@ def train(opt):
             # testing on training set
             # _, trn_ds.inv_pred = evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer)
             evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer)
+
+        # Shuffle indices of unlabelled dataset
+        if trn_ds.unsup_data is not None:
+            np.random.shuffle(trn_ds.unsup_index)
 
     model.save(opt.paths.checkpoint_dir, 'final')
     print('Done training!')

@@ -1,8 +1,8 @@
-import hdf5storage
-import matplotlib.pyplot as plt
-import numpy as np
+import os
+from typing import Union
 
 import torch
+import numpy as np
 import torch.multiprocessing
 from torch.utils.data import TensorDataset
 from self_time.optim.pretrain import get_transform
@@ -10,6 +10,7 @@ from self_time.optim.pretrain import get_transform
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 from utils.misc import load_pickle
+from preprocessing.s02b_create_unsupervised_dataset import load_datasets as load_unlabelled_datasets
 
 
 def preproc_input(x, norm_per_signal, condition=None):
@@ -60,13 +61,12 @@ def create_datasets_cores(ftrs_train, inv_train, corelen_train, ftrs_val, inv_va
 
 class DatasetV1(torch.utils.data.Dataset):
     """Characterizes a dataset for PyTorch"""
-    from typing import Union
 
-    def __init__(self, data, label, location, inv,
-                 aug_type: Union[list, str] = ('G2',), n_views=1, transform_prob=.5):
+    def __init__(self, data, label, location, inv, unsup_data=None,
+                 aug_type: Union[list, str] = ('G2',), unsup_aug_type=None, unsup_transform_prob=.4,
+                 n_views=1, transform_prob=.2):
         # assert all(tensors[0].size(0) == tensor.size(0) for tensor in tensors)
         # from tsaug import TimeWarp, Crop, Quantize, Drift, Reverse, Convolve
-
         self.data = torch.tensor(data, dtype=torch.float32) if aug_type == 'none' else data
         self.label = torch.tensor(label, dtype=torch.uint8)
         self.location = torch.tensor(location, dtype=torch.uint8)
@@ -87,6 +87,25 @@ class DatasetV1(torch.utils.data.Dataset):
         #         + Convolve(window='flattop', size=11, prob=.25)
         # )
 
+        # For unlabeled dataset
+        self.unsup_data, self.unsup_ratio, self.unsup_index, self.unsup_ratio = None, None, None, 1
+        if self.aug_type != 'none':
+            if (unsup_aug_type == 'none') or (unsup_aug_type is None):
+                raise Exception('Data augmentations for unsupervised learning must be specified!')
+            self.unsup_transform, _ = get_transform(
+                unsup_aug_type if isinstance(unsup_aug_type, list) else [unsup_aug_type, ],
+                prob=unsup_transform_prob,
+            )
+            self.unsup_data = unsup_data.astype('float32') if unsup_data is not None else None
+            if self.unsup_data is not None:
+                self.unsup_interval = int(np.floor(self.unsup_data.shape[0] / len(self.data)))
+                self.unsup_index = np.arange(self.unsup_data.shape[0])
+
+    def __getitem__(self, index):
+        if self.unsup_data is None:
+            return self.getitem_sup(index)
+        return self.getitem_semi_sup(index)
+
     @property
     def inv_pred(self):
         return self._inv_pred
@@ -98,32 +117,45 @@ class DatasetV1(torch.utils.data.Dataset):
         else:
             self._inv_pred = None
 
-    def __getitem__(self, index):
+    def getitem_by_index(self, index):
         x = self.data[index]
         y = self.label[index]
         z = self.location[index]
-        if self.inv_pred is None:
-            loss_weight = 1
-        else:
-            loss_weight = torch.exp(torch.abs(self.inv_pred[index] - self.inv[index])).item()
-            # loss_weight *= 2 if y == 0 else 1
+        # loss_weight = 1 if self.inv_pred is None else \
+        #     torch.exp(torch.abs(self.inv_pred[index] - self.inv[index])).item()
+        # loss_weight = self.inv[index].item() if y[1] == 1 else 1
+        loss_weight = 1
+        return x, y, z, loss_weight
 
+    def getitem_sup(self, index):
+        x, y, z, loss_weight = self.getitem_by_index(index)
         if self.aug_type == 'none':
             return x, y, z, index
 
         img_list, label_list, loc_list, idx_list, loss_weight_list = [], [], [], [], []
 
-        if self.transform is not None:
-            # img_transformed = self.transform.augment(x)
-            # img_list.append(self.to_tensor_transform(img_transformed))  # .unsqueeze(0)
-            for _ in range(self.n_views):
-                img_transformed = self.transform(x[..., np.newaxis]).squeeze()
-                img_list.append(self.to_tensor_transform(img_transformed))  # .unsqueeze(0)
-                loc_list.append(z)
-                label_list.append(y)
-                idx_list.append(index)
-                loss_weight_list.append(loss_weight)
+        # img_transformed = self.transform.augment(x)
+        # img_list.append(self.to_tensor_transform(img_transformed))  # .unsqueeze(0)
+        for _ in range(self.n_views):
+            img_transformed = self.transform(x[..., np.newaxis]).squeeze()
+            img_list.append(self.to_tensor_transform(img_transformed))
+            loc_list.append(z)
+            label_list.append(y)
+            idx_list.append(index)
+            loss_weight_list.append(loss_weight)
         return img_list, label_list, loc_list, idx_list, loss_weight_list
+
+    def getitem_semi_sup(self, index):
+        img_list, label_list, loc_list, idx_list, loss_weight_list = self.getitem_sup(index)
+        index = self.unsup_index[index] * self.unsup_interval
+        x_unsup = self.unsup_data[index: index + self.unsup_ratio]
+        img_unsup_list = []
+        for _x_unsup in x_unsup:
+            for _ in range(2):
+                img_unsup_list.append(self.to_tensor_transform(
+                    self.unsup_transform(_x_unsup[..., np.newaxis]).squeeze()))
+
+        return img_list, label_list, loc_list, idx_list, loss_weight_list, img_unsup_list
 
     def __len__(self):
         return self.label.size(0)
@@ -213,61 +245,69 @@ def preprocess(input_data, p_thr=.2, to_norm=True):
     return input_data
 
 
-def create_datasets_v1(data_file, norm=None, min_inv=0.4, augno=0, inv_state='none', aug_type='none', n_views=4,
+def concat_data(included_idx, data, label=None, core_name=None, inv=None):
+    """ Concatenate data from different cores specified by 'included_idx' """
+    core_counter = 0
+    data_c, label_c, core_name_c, inv_c, core_len = [], [], [], [], []
+    for i in range(len(data)):
+        if included_idx[i]:
+            data_c.append(data[i])
+            label_c.append(np.repeat(label[i], data[i].shape[0]))
+            temp = np.tile(core_name[i], data[i].shape[0])
+            core_name_c.append(temp.reshape((data[i].shape[0], 8)))
+            inv_c.append(np.repeat(inv[i], data[i].shape[0]))
+            core_len.append(np.repeat(core_counter, data[i].shape[0]))
+            core_counter += 1
+    data_c = np.concatenate(data_c).astype('float32')
+    label_c = to_categorical(np.concatenate(label_c))
+    core_name_c = np.concatenate(core_name_c)
+    inv_c = np.concatenate(inv_c)
+    return data_c, label_c, core_name_c, inv_c
+
+
+def create_datasets_v1(data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
+                       unlabelled_data_file=None, unsup_aug_type=None,
                        to_norm=False):
+    """
+    Create training, validation and test sets
+    :param data_file:
+    :param norm:
+    :param min_inv:
+    :param aug_type:
+    :param n_views:
+    :param unlabelled_data_file:
+    :param to_norm:
+    :return:
+    """
     input_data = load_pickle(data_file)
-    # unsup_data = load_pickle(data_file.replace('mimic', 'unsup'))
     input_data = preprocess(input_data, to_norm=to_norm)
 
     data_train = input_data["data_train"]
     inv_train = input_data["inv_train"]
     label_train = (inv_train > 0).astype('uint8')
-    CoreN_train = input_data["corename_train"].astype(np.float)
+    core_name_train = input_data["corename_train"].astype(np.float)
 
     # data_train = data_train + input_data["data_val"]
     # label_train = np.concatenate([label_train, input_data["label_val"]], axis=0)
     # inv_train = np.concatenate([inv_train, input_data["inv_val"]], axis=0)
     # CoreN_train = np.concatenate([CoreN_train, input_data["corename_val"].astype(np.float)])
 
-    included_idx = [True for lid in label_train]
-    included_idx = [False if inv < min_inv and inv > 0 else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
-    corelen_train = []
+    included_idx = [True for _ in label_train]
+    included_idx = [False if (inv < min_inv) and (inv > 0) else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
+    signal_train, label_train, name_train, inv_train = concat_data(
+        included_idx, data_train, label_train, core_name_train, inv_train,
+    )
 
-    # Working with BK dataset
-    corecounter = 0
-    bags_train = []
-    target_train = []
-    name_train = []
-    siginv_train = []
-    coreno_train = []
-    for i in range(len(data_train)):
-        if included_idx[i]:
-            bags_train.append(data_train[i])
-            target_train.append(np.repeat(label_train[i], data_train[i].shape[0]))
-            temp = np.tile(CoreN_train[i], data_train[i].shape[0])
-            name_train.append(temp.reshape((data_train[i].shape[0], 8)))
-            corelen_train.append(data_train[i].shape[0])
-            siginv_train.append(np.repeat(inv_train[i], data_train[i].shape[0]))
+    # unsup_data = None
+    unsup_data = np.concatenate(data_train)
+    # unsup_data = load_unlabelled_datasets(unlabelled_data_file) if 'none' not in unlabelled_data_file else None
 
-            coreno_train.append(np.repeat(corecounter, data_train[i].shape[0]))
-            corecounter += 1
+    trn_ds = DatasetV1(signal_train, label_train, name_train, inv_train, transform_prob=.2,
+                       unsup_data=unsup_data, aug_type=aug_type, n_views=n_views,
+                       unsup_aug_type=unsup_aug_type, unsup_transform_prob=.8,
+                       )  # ['magnitude_warp', 'time_warp'])
 
-    signal_train = np.concatenate(bags_train).astype('float32')
-    # if normalize:
-    #     signal_train, train_stats = preprocess(signal_train)
-    # else:
-    #     train_stats = None
     train_stats = None
-    target_train = np.concatenate(target_train)
-    name_train = np.concatenate(name_train)
-    label_train = to_categorical(target_train)
-    siginv_train = np.concatenate(siginv_train)
-    trn_ds = DatasetV1(signal_train, label_train, name_train, siginv_train,
-                       aug_type=aug_type, n_views=n_views)  # ['magnitude_warp', 'time_warp'])
-
-    # for s in ['train', 'val', 'test']:
-    #     input_data[f"data_{s}"] = np.concatenate(input_data[f"data_{s}"])
-
     train_set = create_datasets_test(None, min_inv=0.4, state='train', norm=norm, input_data=input_data,
                                      train_stats=train_stats)
     val_set = create_datasets_test(None, min_inv=0.4, state='val', norm=norm, input_data=input_data,

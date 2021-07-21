@@ -20,6 +20,7 @@ data_source:
   data_root: datasets
   train_set: BK_RF_P1_140_balance__20210203-175808_mimic.pkl  # BK_RF_P1_140_balance__20201127-104536.mat
   test_set: BK_RF_P1_140_balance__20210203-175808_mimic.pkl
+  unlabelled_set: none #unlabelled/BK_RF_P1_140_balance__20210203-175808_unsup.npy
 
 # Tunable (iteratively) hyper-parameters
 seed: 0
@@ -36,13 +37,14 @@ lr: 1e-4
 normalize_input: none
 temperature: .5
 aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
+unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
 #aug_type: 'none'
 loss_name: 'gce'  # 'gce'
 min_inv: .4
 
 train:
   loss_coefficients: [ 1., 0.1 ]
-  n_views: 2
+  n_views: 1
   lr_scheduler:
     patience: 999
     trials: 0

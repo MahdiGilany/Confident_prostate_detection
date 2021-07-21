@@ -59,6 +59,7 @@ class InceptionModel(nn.Module):
         bottleneck_channels = cast(List[int], self._expand_to_blocks(bottleneck_channels,
                                                                      num_blocks))
         kernel_sizes = cast(List[int], self._expand_to_blocks(kernel_sizes, num_blocks))
+        strides = cast(List[int], self._expand_to_blocks(1, num_blocks))
         if use_residuals == 'default':
             use_residuals = [True if i % 3 == 2 else False for i in range(num_blocks)]
         use_residuals = cast(List[bool], self._expand_to_blocks(
@@ -67,7 +68,7 @@ class InceptionModel(nn.Module):
 
         self.blocks = nn.Sequential(*[
             InceptionBlock(in_channels=channels[i], out_channels=channels[i + 1],
-                           residual=use_residuals[i], bottleneck_channels=bottleneck_channels[i],
+                           residual=use_residuals[i], bottleneck_channels=bottleneck_channels[i], stride=strides[i],
                            kernel_size=kernel_sizes[i]) for i in range(num_blocks)
         ])
 
@@ -84,7 +85,11 @@ class InceptionModel(nn.Module):
         #     nn.Dropout(.5),
         #     nn.Linear(linear_in, channels[-1]), nn.PReLU(), nn.BatchNorm1d(channels[-1]))
 
-        self.linear00 = nn.Linear(channels[-1], channels[-1])
+        self.linear00 = nn.Sequential(
+            nn.Linear(channels[-1], channels[-1]),
+            nn.ReLU(),
+            # nn.Dropout(.5),
+        )
         self.linear01 = IsoMaxLossFirstPart(channels[-1], num_pred_classes)
         # self.fc = IsoMaxLossFirstPart(channels[-1], num_pred_classes)
 
@@ -115,7 +120,7 @@ class InceptionModel(nn.Module):
         x = self.blocks(x).mean(dim=-1)  # the mean is the global average pooling
         if self.self_train:
             return F.normalize(x, dim=1)
-        out1 = self.linear01(F.relu(self.linear00(x)))
+        out1 = self.linear01(self.linear00(x))
         # out1 = self.fc(x)
 
         # if self.num_positions > 0:
@@ -149,9 +154,10 @@ class InceptionBlock(nn.Module):
         kernel_size_s = [kernel_size // (2 ** i) for i in range(3)]
         start_channels = bottleneck_channels if self.use_bottleneck else in_channels
         channels = [start_channels] + [out_channels] * 3
+        strides = [1, 1, stride]
         self.conv_layers = nn.Sequential(*[
             Conv1dSamePadding(in_channels=channels[i], out_channels=channels[i + 1],
-                              kernel_size=kernel_size_s[i], stride=stride, bias=False)
+                              kernel_size=kernel_size_s[i], stride=strides[i], bias=False)
             for i in range(len(kernel_size_s))
         ])
 
@@ -170,6 +176,7 @@ class InceptionBlock(nn.Module):
             x = self.bottleneck(x)
         x = self.conv_layers(x)
 
+        # print(x.shape, self.residual(org_x).shape)
         if self.use_residual:
             x = x + self.residual(org_x)
         return x
@@ -180,7 +187,7 @@ def main():
     num_blocks, in_channels, pred_classes = 3, 1, 2
     net = InceptionModel(num_blocks, in_channels, out_channels=30,
                          bottleneck_channels=12, kernel_sizes=15, use_residuals=True,
-                         num_pred_classes=pred_classes, num_positions=8)
+                         num_pred_classes=pred_classes, num_positions=0)
     summary(net, input_size=[(2, 1, 200), (2, 8)])
 
 

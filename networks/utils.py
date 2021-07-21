@@ -36,7 +36,8 @@ def conv1d_same_padding(input, weight, bias, stride, dilation, groups):
     # stride and dilation are expected to be tuples.
     kernel, dilation, stride = weight.size(2), dilation[0], stride[0]
     l_out = l_in = input.size(2)
-    padding = (((l_out - 1) * stride) - l_in + (dilation * (kernel - 1)) + 1)
+    # padding = (((l_out - 1) * stride) - l_in + (dilation * (kernel - 1)) + 1)
+    padding = (((l_out - 1)) - l_in + (dilation * (kernel - 1)) + 1)
     if padding % 2 != 0:
         input = F.pad(input, [0, 1])
 

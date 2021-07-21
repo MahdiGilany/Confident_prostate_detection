@@ -1,6 +1,8 @@
 import os
-import sys
+import time
 import pickle
+from glob import glob
+
 import numpy as np
 from tqdm import tqdm
 
@@ -74,27 +76,29 @@ def create_dataset(output_dir, output_filename):
     # save_pickle(input_data, os.path.join(output_dir, output_filename))
 
 
-def load_datasets(dir_name, file_name):
-    from glob import glob
-    import time
-    files = glob(os.path.join(dir_name, file_name).replace('.npy', '_part*.npy'))
+def load_datasets(file_name, verbose=False):
+    print('Loading unlabeled data...')
+    files = glob(file_name.replace('.npy', '_part*.npy'))
     files.sort()
     tic = time.time()
     d = []
     for file in files:
-        print(file)
         d.append(np.load(file))
-        print(d[0].shape)
-        # break
-    print(np.concatenate(d, axis=0).shape)
-    print(time.time() - tic)
+        if verbose:
+            print(file)
+            print(d[0].shape)
+    data = np.concatenate(d, axis=0)
+    if verbose:
+        print(data.shape)
+        print(time.time() - tic)
+    print('Done.')
+    return data
 
 
 if __name__ == '__main__':
     dirname = '../datasets/unlabelled'
-    # dirname = '/raid/home/minht/projects/prostate_teus/ProstateCancerClassificationV1/datasets/unlabelled'
+    dirname = '/raid/home/minht/projects/prostate_teus/ProstateCancerClassificationV1/datasets/unlabelled'
     filename = 'BK_RF_P1_140_balance__20210203-175808_unsup.npy'
 
-    create_dataset(dirname, filename)
-    # load_datasets(dirname, filename)
-    print('abc')
+    # create_dataset(dirname, filename)
+    load_datasets(os.path.join(dirname, filename))
