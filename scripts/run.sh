@@ -5,14 +5,14 @@ config=yamls/coteaching.yml # vanilla_local.yml
 #config=yamls/vanilla.yml
 #backbone=Classifier_3L # Classifier_3L  # SimConv4  # Inception  # resnet
 gpus_id=0
-train_batch_size=$((2048 * 2))
+train_batch_size=$((2048 * 4))
 loss_name=elr # elr gce
 lr=5e-4
-elr_alpha=0 # 1
 epochs=100
 backbone=inception
+min_inv=.7
 
-for min_inv in .7; do
+for elr_alpha in 0; do  # 3 1e-1
   for seed in 150; do # {21..40}; do
     suffix=_sd${seed}_bs${train_batch_size}_lr${lr}$2_ep${epochs}_ap${elr_alpha}_${loss_name}_miv${min_inv}
 

@@ -38,7 +38,7 @@ class InceptionModel(nn.Module):
     def __init__(self, num_blocks: int, in_channels: int, out_channels: Union[List[int], int],
                  bottleneck_channels: Union[List[int], int], kernel_sizes: Union[List[int], int],
                  use_residuals: Union[List[bool], bool, str] = 'default',
-                 num_pred_classes: int = 1, self_train=False,
+                 num_pred_classes: int = 1, self_train=False, stride=1,
                  num_positions=0,
                  ) -> None:
         super().__init__()
@@ -51,15 +51,17 @@ class InceptionModel(nn.Module):
             'bottleneck_channels': bottleneck_channels,
             'kernel_sizes': kernel_sizes,
             'use_residuals': use_residuals,
-            'num_pred_classes': num_pred_classes
+            'num_pred_classes': num_pred_classes,
+            'stride': stride,
         }
         self.self_train = self_train
-        channels = [in_channels] + cast(List[int], self._expand_to_blocks(out_channels,
-                                                                          num_blocks))
-        bottleneck_channels = cast(List[int], self._expand_to_blocks(bottleneck_channels,
-                                                                     num_blocks))
+        # channels = [in_channels] + cast(List[int], self._expand_to_blocks(out_channels,
+        #                                                                   num_blocks))
+        # bottleneck_channels = cast(List[int], self._expand_to_blocks(bottleneck_channels, num_blocks))
+        channels = [in_channels] + [out_channels * 4**i for i in range(num_blocks)]
+        bottleneck_channels = [c//2 for c in channels[1:]]
         kernel_sizes = cast(List[int], self._expand_to_blocks(kernel_sizes, num_blocks))
-        strides = cast(List[int], self._expand_to_blocks(1, num_blocks))
+        strides = cast(List[int], self._expand_to_blocks(stride, num_blocks))
         if use_residuals == 'default':
             use_residuals = [True if i % 3 == 2 else False for i in range(num_blocks)]
         use_residuals = cast(List[bool], self._expand_to_blocks(
@@ -185,8 +187,8 @@ class InceptionBlock(nn.Module):
 def main():
     from torchinfo import summary
     num_blocks, in_channels, pred_classes = 3, 1, 2
-    net = InceptionModel(num_blocks, in_channels, out_channels=30,
-                         bottleneck_channels=12, kernel_sizes=15, use_residuals=True,
+    net = InceptionModel(num_blocks, in_channels, out_channels=16,
+                         bottleneck_channels=16, kernel_sizes=15, use_residuals=True, stride=2,
                          num_pred_classes=pred_classes, num_positions=0)
     summary(net, input_size=[(2, 1, 200), (2, 8)])
 

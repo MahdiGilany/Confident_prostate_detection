@@ -298,8 +298,8 @@ def create_datasets_v1(data_file, norm=None, min_inv=0.4, aug_type='none', n_vie
         included_idx, data_train, label_train, core_name_train, inv_train,
     )
 
-    # unsup_data = None
     unsup_data = np.concatenate(data_train)
+    # unsup_data = None
     # unsup_data = load_unlabelled_datasets(unlabelled_data_file) if 'none' not in unlabelled_data_file else None
 
     trn_ds = DatasetV1(signal_train, label_train, name_train, inv_train, transform_prob=.2,

@@ -166,8 +166,8 @@ class CoTeaching(Model):
                                     reduction='batchmean')
             loss_unsup_2 = F.kl_div(F.softmax(out_unsup_12, dim=1), F.softmax(out_unsup_22, dim=1),
                                     reduction='batchmean')
-            loss1 += loss_unsup_1 * 1e-2
-            loss2 += loss_unsup_2 * 1e-2
+            loss1 += loss_unsup_1 * 1e-3
+            loss2 += loss_unsup_2 * 1e-3
 
         self.optimize((loss1, loss2))
         return out1, out2, loss1, loss2, {'ind': ind, 'idx_sup': idx_sup}
