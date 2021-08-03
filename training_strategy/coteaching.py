@@ -79,9 +79,9 @@ class CoTeaching(Model):
         #                                                     step_size_up=1000, cycle_momentum=False,
         #                                                     mode="triangular2")
         self.scheduler1 = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer1, 10, T_mult=1, eta_min=lr / 10, last_epoch=-1)  # lr/10
+            self.optimizer1, 10, T_mult=1, eta_min=float(lr)/10, last_epoch=-1)  # lr/10
         self.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer2, 10, T_mult=1, eta_min=lr / 10, last_epoch=-1)  # lr/10
+            self.optimizer2, 10, T_mult=1, eta_min=float(lr)/10, last_epoch=-1)  # lr/10
         if n_epochs is not None:
             self.forget_rate_schedule = forget_rate_scheduler(
                 n_epochs, forget_rate, num_gradual, exponent)

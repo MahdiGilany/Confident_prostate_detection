@@ -26,7 +26,7 @@ def infer_core_wise(predictions, core_len, roi_coors, ood_scores=None):
         core_ood.append(ood_scores)
         counter += core_len[i]
 
-        heatmap = np.zeros((roi_coors[i][0].max()+1, roi_coors[i][1].max()+1))
-        heatmap[roi_coors[i][0], roi_coors[i][1]] = core_res1[i][:, 1]
-        prediction_maps.append(heatmap)
+        # heatmap = np.zeros((roi_coors[i][0].max()+1, roi_coors[i][1].max()+1))
+        # heatmap[roi_coors[i][0], roi_coors[i][1]] = core_res1[i][:, 1]
+        # prediction_maps.append(heatmap)
     return core_l1, core_ood, prediction_maps

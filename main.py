@@ -1,6 +1,7 @@
 from utils import *
 from utils.dataloader import create_loader, create_loaders_test
-from utils.dataset import create_datasets_v1 as create_datasets, create_datasets_test
+from utils.dataset import create_datasets_Exact as create_datasets
+from utils.dataset import create_datasets_test_Exact as create_datasets_test
 
 
 def train(opt):
@@ -89,11 +90,11 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # Load test set
     if dataset_test is None:  # For standalone evaluation
         # train_stat is missing currently, the evaluation perhaps will be wrong
-        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors = create_datasets_test(
+        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = create_datasets_test(
             '/'.join([opt.data_source.data_root, opt.data_source.test_set]),
             min_inv=0.4, state=state, norm=opt.normalize_input)
     else:  # For periodically testing
-        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors = dataset_test
+        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = dataset_test
 
     # Create dataloader to test data
     tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
@@ -106,7 +107,9 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
 
     # Calculating & logging metrics
     scores = {'acc_s': acc_s}
-    scores = compute_metrics(predicted_involvement, true_involvement,
+    # scores = compute_metrics(predicted_involvement, true_involvement,
+    #                          current_epoch=current_epoch, verbose=True, scores=scores)
+    scores = compute_metrics(predicted_involvement, true_labels[0],
                              current_epoch=current_epoch, verbose=True, scores=scores)
 
     # import pylab as plt
@@ -115,8 +118,12 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # for i, pm in enumerate(prediction_maps):
     #     plt.imsave(f'{heatmaps_dir }/{i}_{true_involvement[i]:.2f}.png', pm, vmin=0, vmax=1, cmap='gray')
 
+    # net_interpretation(predicted_involvement, patient_id_bk,
+    #                    true_involvement, gs_bk, opt.paths.result_dir,
+    #                    ood=ood,
+    #                    current_epoch=current_epoch, set_name=set_name, writer=writer, scores=scores)
     net_interpretation(predicted_involvement, patient_id_bk,
-                       true_involvement, gs_bk, opt.paths.result_dir,
+                       true_labels[0], gs_bk, opt.paths.result_dir,
                        ood=ood,
                        current_epoch=current_epoch, set_name=set_name, writer=writer, scores=scores)
 

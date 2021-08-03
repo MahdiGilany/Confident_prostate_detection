@@ -21,6 +21,8 @@ from tensorboardX import SummaryWriter
 import bz2
 import _pickle as cPickle
 
+from scipy.io import matlab
+
 from datetime import datetime
 
 import numpy as np
@@ -338,3 +340,20 @@ def init_weights(net, init_fn):
     for child in net.children():
         if isinstance(child, nn.Conv1d):
             init_fn(child.weights)
+
+
+########################################################################
+def load_matlab(filename):
+    with open(filename, 'rb') as fp:
+        return matlab.loadmat(fp, struct_as_record=False, squeeze_me=True)
+
+
+def squeeze_Exact(inputdata):
+    """Squeeze all data in Exact"""
+    inputdata["data_train"] = inputdata["data_train"][0]
+    inputdata["label_train"] = inputdata["label_train"][0]
+    inputdata["data_val"] = inputdata["data_val"][0]
+    inputdata["label_val"] = inputdata["label_val"][0]
+    inputdata["data_test"] = inputdata["data_test"][0]
+    inputdata["label_test"] = inputdata["label_test"][0]
+

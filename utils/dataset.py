@@ -9,7 +9,9 @@ from self_time.optim.pretrain import get_transform
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+from utils.misc import load_matlab
 from utils.misc import load_pickle
+from utils.misc import squeeze_Exact
 from preprocessing.s02b_create_unsupervised_dataset import load_datasets as load_unlabelled_datasets
 
 
@@ -62,7 +64,7 @@ def create_datasets_cores(ftrs_train, inv_train, corelen_train, ftrs_val, inv_va
 class DatasetV1(torch.utils.data.Dataset):
     """Characterizes a dataset for PyTorch"""
 
-    def __init__(self, data, label, location, inv, unsup_data=None,
+    def __init__(self, data, label, location, inv=None, unsup_data=None,
                  aug_type: Union[list, str] = ('G2',), unsup_aug_type=None, unsup_transform_prob=.4,
                  n_views=1, transform_prob=.2):
         # assert all(tensors[0].size(0) == tensor.size(0) for tensor in tensors)
@@ -77,7 +79,8 @@ class DatasetV1(torch.utils.data.Dataset):
             aug_type if isinstance(aug_type, list) else [aug_type, ],
             prob=transform_prob,
         )
-        self.inv = torch.tensor(inv, dtype=torch.float32)
+        if inv is not None:
+            self.inv = torch.tensor(inv, dtype=torch.float32)
         # self.transform = (
         #         TimeWarp() * 1  # random time warping 5 times in parallel
         #         # + Crop(size=170)  # random crop subsequences with length 300
@@ -186,6 +189,8 @@ def remove_empty_data(input_data, set_name, p_thr=.2):
     zero_percentage = [s[i] / np.prod(data[i].shape) for i in range(len(data))]
     include_idx = np.array([i for i, p in enumerate(zero_percentage) if p < p_thr])
     if len(include_idx) == 0:
+        return input_data
+    if len(include_idx) == len(data):
         return input_data
 
     for k in input_data.keys():
@@ -525,3 +530,164 @@ def _preprocess(x_train):
     # x_val = 2. * (x_val - x_train_min) / (x_train_max - x_train_min) - 1.
     # x_test = 2. * (x_test - x_train_min) / (x_train_max - x_train_min) - 1.
     return x_train, (x_train_min, x_train_max)
+
+
+######################################################################################
+######################################################################################
+def create_datasets_Exact(data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
+                          unlabelled_data_file=None, unsup_aug_type=None,
+                          to_norm=False):
+    """
+    Create training, validation and test sets
+    :param data_file:
+    :param norm:
+    :param min_inv:
+    :param aug_type:
+    :param n_views:
+    :param unlabelled_data_file:
+    :param to_norm:
+    :return:
+    """
+
+    input_data = load_matlab(data_file)
+    # squeeze_Exact(input_data)
+    input_data = preprocess(input_data, to_norm=to_norm)
+
+    data_train = input_data["data_train"]
+    label_train = input_data["label_train"]
+    core_name_train = input_data["corename_train"].astype(np.float)
+
+    # inv_train = input_data["inv_train"]
+    # label_train = (inv_train > 0).astype('uint8')
+
+    # data_train = data_train + input_data["data_val"]
+    # label_train = np.concatenate([label_train, input_data["label_val"]], axis=0)
+    # inv_train = np.concatenate([inv_train, input_data["inv_val"]], axis=0)
+    # CoreN_train = np.concatenate([CoreN_train, input_data["corename_val"].astype(np.float)])
+
+    # included_idx = [True for _ in label_train]
+    # included_idx = [False if (inv < min_inv) and (inv > 0) else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
+
+    signal_train, label_train, name_train, inv_train = concat_data_Exact(
+        data_train, label_train, core_name_train)
+
+    # unsup_data = np.concatenate(data_train)
+    unsup_data = None
+    # unsup_data = load_unlabelled_datasets(unlabelled_data_file) if 'none' not in unlabelled_data_file else None
+
+    trn_ds = DatasetV1(signal_train, label_train, name_train, inv_train, transform_prob=.2,
+                       unsup_data=unsup_data, aug_type=aug_type, n_views=n_views,
+                       unsup_aug_type=unsup_aug_type, unsup_transform_prob=.8,
+                       )  # ['magnitude_warp', 'time_warp'])
+
+    train_stats = None
+    train_set = create_datasets_test_Exact(None, min_inv=0.4, state='train', norm=norm, input_data=input_data,
+                                           train_stats=train_stats)
+    val_set = create_datasets_test_Exact(None, min_inv=0.4, state='val', norm=norm, input_data=input_data,
+                                         train_stats=train_stats)
+    test_set = create_datasets_test_Exact(None, min_inv=0.4, state='test', norm=norm, input_data=input_data,
+                                          train_stats=train_stats)
+
+    return trn_ds, train_set, val_set, test_set
+
+
+def concat_data_Exact(data, label=None, core_name=None, inv=None):
+    """ Concatenate data from different cores specified by 'included_idx' """
+    core_counter = 0
+    data_c, label_c, core_name_c, inv_c, core_len = [], [], [], [], []
+    for i in range(len(data)):
+        # if included_idx[i]:
+        data_c.append(data[i])
+        label_c.append(np.repeat(label[i], data[i].shape[0]))
+        temp = np.tile(core_name[i], data[i].shape[0])
+        core_name_c.append(temp.reshape((data[i].shape[0], 1)))
+        # inv_c.append(np.repeat(inv[i], data[i].shape[0]))
+        core_len.append(np.repeat(core_counter, data[i].shape[0]))
+        core_counter += 1
+    data_c = np.concatenate(data_c).astype('float32')
+    label_c = to_categorical(np.concatenate(label_c))
+    core_name_c = to_categorical(np.concatenate(core_name_c))
+    # inv_c = np.concatenate(inv_c)
+    return data_c, label_c, core_name_c, None
+
+
+def create_datasets_test_Exact(data_file, state, norm='Min_Max', min_inv=0.4, augno=0, inv_state='normal',
+                               input_data=None,
+                               return_array=False, train_stats=None):
+    if input_data is None:
+        input_data = load_matlab(data_file)
+
+    data_test = input_data["data_" + state]  # [0]
+    label_test = input_data["label_" + state]  # [0]
+    CoreN_test = input_data["corename_" + state]
+    patient_id_bk = input_data["PatientId_" + state]
+    gs_bk = input_data["GS_" + state]
+    true_label = label_test
+    # gs_bk = [str(lbl[0][0][0]) for i, lbl in enumerate(GS)]
+    # roi_coors_test = input_data['roi_coors_' + state]
+    # label_inv = input_data["inv_" + state]  # [0]
+    # label_test = (label_inv > 0).astype('uint8')
+    # involvement_bk = input_data["inv_" + state]  # [0]
+    # gs_bk = np.array(input_data["GS_" + state])  # [0]
+
+    # included_idx = [False if ((inv < min_inv) and (inv > 0)) else True for inv in label_inv]
+
+    corelen = []
+    target_test = []
+    name_tst = []
+
+    # Working with BK dataset
+    bags_test = []
+    # sig_inv_test = []
+    for i in range(len(data_test)):
+        # if included_idx[i]:
+        bags_test.append(data_test[i])
+        target_test.append(np.repeat(label_test[i], data_test[i].shape[0]))
+        # temp=np.repeat(onehot_corename(CoreN_test[i]),data_test[i].shape[0])
+        temp = np.tile(CoreN_test[i], data_test[i].shape[0])
+        name_tst.append(temp.reshape((data_test[i].shape[0], 1)))
+        corelen.append(data_test[i].shape[0])
+        # if label_inv[i] == 0:
+        #     sig_inv_test.append(np.repeat(label_inv[i], data_test[i].shape[0]))
+        # elif inv_state == 'uniform':
+        #     dist = abs(label_inv[i] - np.array([0.25, 0.5, 0.75, 1]))
+        #     min_ind = np.argmin(dist)
+        #     temp_inv = abs(torch.rand(data_test[i].shape[0]) * 0.25) + 0.25 * min_ind
+        #     sig_inv_test.append(temp_inv)
+        # elif inv_state == 'normal':
+        #     temp_inv = torch.randn(data_test[i].shape[0]) * np.sqrt(0.1) + label_inv[i]
+        #     sig_inv_test.append(np.abs(temp_inv))
+        # else:
+        #     sig_inv_test.append(np.repeat(label_inv[i], data_test[i].shape[0]))
+
+    signal_test = np.concatenate(bags_test)
+    target_test = np.concatenate(target_test)
+    name_tst = to_categorical(np.concatenate(name_tst))
+    # sig_inv_test = np.concatenate(sig_inv_test)
+
+    # roi_coors_test = [roi_coors_test[i] for i in range(len(roi_coors_test)) if included_idx[i] == 1]
+    # patient_id_bk = patient_id_bk[included_idx]
+    # gs_bk = gs_bk[included_idx]
+    # label_inv = label_inv[included_idx]
+
+    if train_stats:
+        x_train_min, x_train_max = train_stats
+        signal_test = 2. * (signal_test - x_train_min) / (x_train_max - x_train_min) - 1.
+    #
+    # signal_test = (signal_test - signal_test.mean(axis=1)[..., np.newaxis]) / signal_test.std(axis=1)[
+    #     ..., np.newaxis]
+
+    if return_array:
+        return signal_test, corelen, None, patient_id_bk, gs_bk
+
+    label_test = to_categorical(target_test)
+
+    # tst_ds = TensorDataset(torch.tensor(signal_test, dtype=torch.float32).unsqueeze(1),
+    # torch.tensor(label_test, dtype=torch.uint8),
+    # torch.tensor(name_tst, dtype=torch.uint8),
+    # torch.tensor(sig_inv_test, dtype=torch.float32).unsqueeze(1))
+    # return tst_ds, corelen, label_inv, patient_id_bk, gs_bk, roi_coors_test
+    tst_ds = TensorDataset(torch.tensor(signal_test, dtype=torch.float32).unsqueeze(1),
+                           torch.tensor(label_test, dtype=torch.uint8),
+                           torch.tensor(name_tst, dtype=torch.uint8))
+    return tst_ds, corelen, None, patient_id_bk, gs_bk, None, true_label

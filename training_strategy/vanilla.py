@@ -86,7 +86,7 @@ class Model:
 
         # apply model on test signals
         for batch in tst_dl:
-            x_raw, y_batch, n_batch, _ = [t.to(self.device) for t in batch]
+            x_raw, y_batch, n_batch, *_ = [t.to(self.device) for t in batch]
             pred = self.infer(x_raw, n_batch, mode='test')
             pred = F.softmax(pred, dim=1)
 

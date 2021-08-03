@@ -16,12 +16,12 @@ def get_transform(aug_type, prob=.2):
     """
     raw = transforms.Raw()
     cutout = transforms.Cutout(sigma=0.1, p=prob)
-    jitter = transforms.Jitter(sigma=0.2, p=prob)
-    scaling = transforms.Scaling(sigma=.4, p=prob)  # 0.4
-    magnitude_warp = transforms.MagnitudeWrap(sigma=0.3, knot=4, p=prob)
-    time_warp = transforms.TimeWarp(sigma=0.2, knot=8, p=prob)
+    jitter = transforms.Jitter(sigma=0.1, p=prob)
+    scaling = transforms.Scaling(sigma=0.1, p=prob)  # 0.4
+    magnitude_warp = transforms.MagnitudeWrap(sigma=0.05, knot=4, p=prob)
+    time_warp = transforms.TimeWarp(sigma=0.1, knot=8, p=prob)
     window_slice = transforms.WindowSlice(reduce_ratio=0.8, p=prob)
-    window_warp = transforms.WindowWarp(window_ratio=0.3, scales=(0.5, 2), p=prob)
+    window_warp = transforms.WindowWarp(window_ratio=0.1, scales=(0.5, 2), p=prob)
 
     transforms_list = {'jitter': [jitter],
                        'cutout': [cutout],
