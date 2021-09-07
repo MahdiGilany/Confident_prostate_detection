@@ -103,7 +103,7 @@ def plot_confusion_matrix(y_true, y_pred, classes,
 def net_interpretation(predicted_label, patient_id, involvement, gleason_score, result_dir=None,
                        ood=None,
                        cct=(0.2, 0.6, 1), cbt=(0, 1, 0.6), cf=(1, 0.2, 0.6),
-                       current_epoch=None, set_name='Test', writer=None, scores: dict = None):
+                       current_epoch=None, set_name='Test', writer=None, scores: dict = None, threshold=0.5):
     """
 
     :param predicted_label:
@@ -129,8 +129,8 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     # auc = roc_auc_score(np.array(true_label), PredictedLabel)
     # print("AUC: %f", auc)
     predicted_label_th = np.array(predicted_label)
-    predicted_label_th[predicted_label_th > 0.5] = 1
-    predicted_label_th[predicted_label_th <= 0.5] = 0
+    predicted_label_th[predicted_label_th > threshold] = 1
+    predicted_label_th[predicted_label_th <= threshold] = 0
     # plot_confusion_matrix(true_label, predicted_label_th, classes=['Benign', 'Cancer'], title='Confusion matrix')
     # plt.savefig(f'{result_dir}/{set_name}_confustion_matrix{current_epoch_str}.png')
     # plt.close()
@@ -145,6 +145,7 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     # print("Specificity: %f" % Spe)
 
     patients = np.unique(patient_id)
+    # Invs = np.ones_like(involvement)
     Invs = involvement * 100
     gs = np.array(gleason_score)
     indx = []
@@ -175,8 +176,9 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
         cmaps[ip, :len(indxip)] = cmap[indxip]
         label.append(gs[indxip])
         for i in range(len(label[ip])):
-            if label[ip][i] == '-':
+            if label[ip][i] == 'Benign':
                 inv[ip, i] = 50
+                label[ip][i] = '-'
             if label[ip][i] == 'FB':
                 inv[ip, i] = 50
                 label[ip][i] = '-'
@@ -191,10 +193,11 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     plt.xticks(np.arange(len(patients)), patients)
     plt.xlabel('Patient No.')
 
+    width = np.array([p.get_width() for p in ax1.patches][0]).squeeze()
     joblblpos = inv / 2 + barbase
     for k1 in range(inv.shape[0]):
         for k2 in range(inv.shape[1]):
-            plt.text(k1, joblblpos[k1, k2], label[k1][k2] if inv[k1, k2] != 0 else '')
+            plt.text(k1-width/2., joblblpos[k1, k2], label[k1][k2] if inv[k1, k2] != 0 else '')
     # plt.savefig(f'{result_dir}/{set_name}_acc_per_core{current_epoch_str}.png')
     ood_sum = np.array([-_ood.sum() for _ood in ood])
     ood_normalized = ood_sum / ood_sum.sum()

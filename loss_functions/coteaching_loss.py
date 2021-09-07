@@ -41,8 +41,8 @@ def loss_coteaching(
     loss_func = kwargs['loss_func'] if 'loss_func' in kwargs.keys() else [F.cross_entropy, F.cross_entropy]
     loss_func1, loss_func2 = loss_func
 
-    # loss_1 = F.cross_entropy(y_1, t, reduction='none')
-    loss_1 = IsoMaxLossSecondPart()(y_1, t, reduction='none')
+    loss_1 = F.cross_entropy(y_1, t, reduction='none')
+    # loss_1 = IsoMaxLossSecondPart()(y_1, t, reduction='none')
     # loss_1 = f_score(y_1, t, reduction='none')
     ind_1_sorted = np.argsort(loss_1.data.cpu())
     loss_1_sorted = loss_1[ind_1_sorted]

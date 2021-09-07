@@ -6,7 +6,10 @@ from sklearn.metrics import (roc_auc_score, f1_score, matthews_corrcoef, average
 
 def cm_score(cfs_mtx):
     """Infer scores from confusion matrix. Implemented for using with 'compute_metrics'"""
-    tn, fp, fn, tp = cfs_mtx.ravel()
+    try:
+        tn, fp, fn, tp = cfs_mtx.ravel()
+    except:
+        tn, fp, fn, tp = 0, 1, 1, 0
 
     def sen(*args):
         return tp / (tp + fn)  # sensitivity
@@ -49,9 +52,9 @@ def get_metrics(cfs_mtx=None):
 
 def compute_metrics(predicted_involvement, true_involvement,
                     metric_list=('auc', 'auprc', 'f1', 'mcc', 'sen', 'spe', 'pre', 'acc', 'acc_b'),
-                    current_epoch=None, verbose=False, scores=None) -> dict:
+                    current_epoch=None, verbose=False, scores=None, threshold=0.5) -> dict:
 
-    core_predictions = np.array([item > 0.5 for item in predicted_involvement])
+    core_predictions = np.array([item > threshold for item in predicted_involvement])
     core_labels = np.array([item > 0 for item in true_involvement])
 
     cfs_mtx = cm_score(confusion_matrix(core_labels, core_predictions))  # tn, fp, fn, tp

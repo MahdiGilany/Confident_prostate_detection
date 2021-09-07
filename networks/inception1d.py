@@ -94,6 +94,7 @@ class InceptionModel(nn.Module):
             # nn.Dropout(.5),
         )
         self.linear01 = IsoMaxLossFirstPart(channels[-1], num_pred_classes)
+        # self.linear01 = nn.Linear(channels[-1], num_pred_classes)
         # self.fc = IsoMaxLossFirstPart(channels[-1], num_pred_classes)
 
         # self.linear10 = nn.Linear(channels[-1], channels[-1])
@@ -149,6 +150,7 @@ class InceptionBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int,
                  residual: bool, stride: int = 1, bottleneck_channels: int = 32,
                  kernel_size: int = 41, drop: float = None) -> None:
+        assert kernel_size > 3, "Kernel size must be strictly greater than 3"
         super().__init__()
 
         self.use_bottleneck = bottleneck_channels > 0
@@ -188,12 +190,16 @@ class InceptionBlock(nn.Module):
 
 def main():
     from torchinfo import summary
-    num_blocks, in_channels, pred_classes = 3, 1, 2
+    num_blocks, in_channels, pred_classes = 2, 256, 2
     net = InceptionModel(num_blocks, in_channels, out_channels=16,
-                         bottleneck_channels=12, kernel_sizes=15, use_residuals='default', stride=1,
+                         bottleneck_channels=12, kernel_sizes=5, use_residuals='default', stride=1,
                          num_pred_classes=pred_classes, num_positions=0)
-    summary(net, input_size=[(2, 1, 200), (2, 8)])
+    summary(net, input_size=[(2, in_channels, 15), (2, 8)])
 
+    # net = InceptionBlock(in_channels=in_channels, out_channels=3,
+    #                      residual=True, stride=1, bottleneck_channels=12,
+    #                      kernel_size=15)
+    # summary(net, input_size=[(2, in_channels, 200)])
 
 if __name__ == '__main__':
     main()

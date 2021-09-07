@@ -3,6 +3,7 @@ from typing import Union
 
 import torch
 import numpy as np
+import sklearn.utils as sk
 import torch.multiprocessing
 from torch.utils.data import TensorDataset
 from self_time.optim.pretrain import get_transform
@@ -133,15 +134,16 @@ class DatasetV1(torch.utils.data.Dataset):
     def getitem_sup(self, index):
         x, y, z, loss_weight = self.getitem_by_index(index)
         if self.aug_type == 'none':
-            return x, y, z, index
+            return x, y, z, index, loss_weight
 
         img_list, label_list, loc_list, idx_list, loss_weight_list = [], [], [], [], []
 
         # img_transformed = self.transform.augment(x)
         # img_list.append(self.to_tensor_transform(img_transformed))  # .unsqueeze(0)
         for _ in range(self.n_views):
-            img_transformed = self.transform(x[..., np.newaxis]).squeeze()
-            img_list.append(self.to_tensor_transform(img_transformed))
+            # print("check this",x.shape) (1,286)
+            img_transformed = self.transform(x.transpose()).squeeze()
+            img_list.append(self.to_tensor_transform(img_transformed).unsqueeze(0))
             loc_list.append(z)
             label_list.append(y)
             idx_list.append(index)
@@ -202,8 +204,13 @@ def remove_empty_data(input_data, set_name, p_thr=.2):
     return input_data
 
 
-def norm_01(x):
+def norm_01(x, *args):
     return (x - x.min(axis=1, keepdims=True)) / (x.max(axis=1, keepdims=True) - x.min(axis=1, keepdims=True))
+
+
+def norm_framemax(x, max_):
+    raise Exception('not correct yet')
+    return x/max_
 
 
 def stratify_groups(groups, num_time_series, marked_array, mark_low_threshold=.2):
@@ -229,24 +236,132 @@ def stratify_groups(groups, num_time_series, marked_array, mark_low_threshold=.2
     return np.concatenate(row_idx), marked_array
 
 
-def normalize(input_data, set_name):
+def normalize(input_data, set_name, to_framemax=False):
+    if to_framemax:
+        _norm = norm_framemax
+    else:
+        _norm = norm_01
+
+    max_ = input_data[f'Frame_max_{set_name}']
     for i, x in enumerate(input_data[f'data_{set_name}']):
-        input_data[f'data_{set_name}'][i] = norm_01(x.astype('float32'))
+        input_data[f'data_{set_name}'][i] = _norm(x.astype('float32'), max_[i])
     return input_data
 
 
-def preprocess(input_data, p_thr=.2, to_norm=True):
+def shuffle_signals(input_data, data, label, corename, GS, frame_max, patientId):
+
+    data_list = []
+    label_list = []
+    corename_list = []
+    # GS_list = []
+    # frame_max_list = []
+    # patientId_list = []
+    names = ['data_', 'corename_', 'label_']
+
+    for i in range(len(data)):
+        data_list.append(data[i])
+        label_list.append(np.repeat(label[i], data[i].shape[0]))
+        temp = np.tile(corename[i], data[i].shape[0])
+        corename_list.append(temp.reshape((data[i].shape[0], 1)))
+        # GS_list.append(GS[i])
+        # frame_max_list.append(frame_max[i])
+        # patientId_list.append(patientId[i])
+
+    data_list = np.concatenate(data_list)
+    corename_list = np.concatenate(corename_list)
+    label_list = np.concatenate(label_list)[:, np.newaxis]
+    # frame_max_list = np.concatenate(frame_max_list)
+    # GS_list = np.concatenate(GS_list)
+    # patientId_list = np.concatenate(patientId_list)
+
+    # bundle by 15
+    # no_data = data_list.shape[0]
+    # data_list = data_list[:, np.newaxis, ...].reshape(int(no_data/15), 15, -1)
+    # corename_list = corename_list[:, np.newaxis, ...].reshape(int(no_data/15), 15, -1)
+    # label_list = label_list[:, np.newaxis, ...].reshape(int(no_data/15), 15, -1)
+
+    data, corename, label = sk.shuffle(data_list, corename_list, label_list, random_state=0)
+
+    # debundle by 15
+    # data = data.reshape(int(no_data), 1, -1).squeeze(axis=1)
+    # corename = corename.reshape(int(no_data), 1, -1).squeeze(axis=1)
+    # label = label.reshape(int(no_data), 1, -1).squeeze(axis=1)
+
+    variables = [data, corename, label]
+
+    for i, n in enumerate(names):
+        l1 = int(len(variables[i])*(61/100))
+        l2 = int(len(variables[i])*(21/100))
+        input_data[n+'train'] = variables[i][np.newaxis, :l1, ...]
+        input_data[n+'val'] = variables[i][np.newaxis, l1:l1+l2, ...]
+        input_data[n+'test'] = variables[i][np.newaxis, l1+l2:, ...]
+
+    return input_data
+
+
+def shuffle_patients(input_data, signal_split=False):
+
+    data = []
+    corename = []
+    frame_max = []
+    GS = []
+    label = []
+    patientId = []
+
+    names = ['data_', 'corename_', 'Frame_max_', 'GS_', 'label_', 'PatientId_']
+
+    for k in input_data.keys():
+        temp_data = input_data[k]
+        if names[0] in k:
+            data.append(temp_data)
+        elif names[1] in k:
+            corename.append(temp_data)
+        elif names[2] in k:
+            frame_max.append(temp_data)
+        elif names[3] in k:
+            GS.append(temp_data)
+        elif names[4] in k:
+            label.append(temp_data)
+        elif names[5] in k:
+            patientId.append(temp_data)
+
+    data = np.concatenate(data)
+    corename = np.concatenate(corename)
+    frame_max = np.concatenate(frame_max)
+    GS = np.concatenate(GS)
+    label = np.concatenate(label)
+    patientId = np.concatenate(patientId)
+
+    if signal_split:
+        return shuffle_signals(input_data, data, label, corename, GS, frame_max, patientId)
+
+    data, corename, frame_max, GS, label, patientId = sk.shuffle(data, corename, frame_max,
+                                                                 GS, label, patientId, random_state=0)
+    variables = [data, corename, frame_max, GS, label, patientId]
+
+    for i, n in enumerate(names):
+        input_data[n+'train'] = variables[i][:386]
+        input_data[n+'val'] = variables[i][386:516]
+        input_data[n+'test'] = variables[i][516:]
+
+    return input_data
+
+
+def preprocess(input_data, p_thr=.2, to_norm=True, shffl_patients=False, signal_split=False):
     """
     Remove data points which have percentage of zeros greater than p_thr
     :param input_data:
     :param p_thr:
     :param to_norm:
+    :param shffl_patients:
     :return:
     """
     for set_name in ['train', 'val', 'test']:
         input_data = remove_empty_data(input_data, set_name, p_thr)
         if to_norm:
-            input_data = normalize(input_data, set_name)
+            input_data = normalize(input_data, set_name, to_framemax=False)
+    if shffl_patients or signal_split:
+        input_data = shuffle_patients(input_data, signal_split=signal_split)
     return input_data
 
 
@@ -331,7 +446,7 @@ class DatasetV2(torch.utils.data.Dataset):
                  aug_type: Union[list, str] = ('G2',), n_views=1, transform_prob=.2,
                  time_series_per_group=16):
         # assert all(tensors[0].size(0) == tensor.size(0) for tensor in tensors)
-        from tsaug import TimeWarp, Crop, Quantize, Drift, Reverse, Convolve
+        # from tsaug import TimeWarp, Crop, Quantize, Drift, Reverse, Convolve
 
         self.data = torch.tensor(data, dtype=torch.float32) if aug_type == 'none' else data
         self.label = torch.tensor(label, dtype=torch.uint8)
@@ -534,9 +649,9 @@ def _preprocess(x_train):
 
 ######################################################################################
 ######################################################################################
-def create_datasets_Exact(data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
+def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
                           unlabelled_data_file=None, unsup_aug_type=None,
-                          to_norm=False):
+                          to_norm=False, signal_split=False, use_inv=True):
     """
     Create training, validation and test sets
     :param data_file:
@@ -546,15 +661,19 @@ def create_datasets_Exact(data_file, norm=None, min_inv=0.4, aug_type='none', n_
     :param n_views:
     :param unlabelled_data_file:
     :param to_norm:
+    :param signal_split:
     :return:
     """
 
+    print("load matlab dataset")
     input_data = load_matlab(data_file)
-    # squeeze_Exact(input_data)
-    input_data = preprocess(input_data, to_norm=to_norm)
+    print("loading done")
 
+    input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split)
     data_train = input_data["data_train"]
-    label_train = input_data["label_train"]
+    inv_train = input_data["inv_train"]
+    # label_train = (inv_train > 0).astype('uint8')
+    label_train = input_data['label_train'].astype('uint8')
     core_name_train = input_data["corename_train"].astype(np.float)
 
     # inv_train = input_data["inv_train"]
@@ -565,16 +684,16 @@ def create_datasets_Exact(data_file, norm=None, min_inv=0.4, aug_type='none', n_
     # inv_train = np.concatenate([inv_train, input_data["inv_val"]], axis=0)
     # CoreN_train = np.concatenate([CoreN_train, input_data["corename_val"].astype(np.float)])
 
-    # included_idx = [True for _ in label_train]
-    # included_idx = [False if (inv < min_inv) and (inv > 0) else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
-
-    signal_train, label_train, name_train, inv_train = concat_data_Exact(
-        data_train, label_train, core_name_train)
+    included_idx = [True for _ in label_train]
+    included_idx = [False if (inv < min_inv) and (inv > 0) else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
+    signal_train, label_train, name_train, inv_train = concat_data_Exact(included_idx, data_train, label_train,
+                                                                         core_name_train, inv_train,
+                                                                         dataset_name=dataset_name,
+                                                                         signal_split=signal_split, use_inv=use_inv)
 
     # unsup_data = np.concatenate(data_train)
     unsup_data = None
     # unsup_data = load_unlabelled_datasets(unlabelled_data_file) if 'none' not in unlabelled_data_file else None
-
     trn_ds = DatasetV1(signal_train, label_train, name_train, inv_train, transform_prob=.2,
                        unsup_data=unsup_data, aug_type=aug_type, n_views=n_views,
                        unsup_aug_type=unsup_aug_type, unsup_transform_prob=.8,
@@ -582,55 +701,67 @@ def create_datasets_Exact(data_file, norm=None, min_inv=0.4, aug_type='none', n_
 
     train_stats = None
     train_set = create_datasets_test_Exact(None, min_inv=0.4, state='train', norm=norm, input_data=input_data,
-                                           train_stats=train_stats)
+                                           train_stats=train_stats, dataset_name=dataset_name,
+                                           signal_split=signal_split, use_inv=use_inv)
     val_set = create_datasets_test_Exact(None, min_inv=0.4, state='val', norm=norm, input_data=input_data,
-                                         train_stats=train_stats)
+                                         train_stats=train_stats, dataset_name=dataset_name,
+                                         signal_split=signal_split, use_inv=use_inv)
     test_set = create_datasets_test_Exact(None, min_inv=0.4, state='test', norm=norm, input_data=input_data,
-                                          train_stats=train_stats)
+                                          train_stats=train_stats, dataset_name=dataset_name,
+                                          signal_split=signal_split, use_inv=use_inv)
 
     return trn_ds, train_set, val_set, test_set
 
 
-def concat_data_Exact(data, label=None, core_name=None, inv=None):
+def concat_data_Exact(included_idx, data, label=None, core_name=None, inv=None,
+                      signal_split=False, dataset_name=None, use_inv=True):
     """ Concatenate data from different cores specified by 'included_idx' """
     core_counter = 0
     data_c, label_c, core_name_c, inv_c, core_len = [], [], [], [], []
     for i in range(len(data)):
-        # if included_idx[i]:
-        data_c.append(data[i])
-        label_c.append(np.repeat(label[i], data[i].shape[0]))
-        temp = np.tile(core_name[i], data[i].shape[0])
-        core_name_c.append(temp.reshape((data[i].shape[0], 1)))
-        # inv_c.append(np.repeat(inv[i], data[i].shape[0]))
-        core_len.append(np.repeat(core_counter, data[i].shape[0]))
-        core_counter += 1
+        if included_idx[i] or (not use_inv):
+            data_c.append(data[i])
+            core_len.append(np.repeat(core_counter, data[i].shape[0]))
+            core_counter += 1
+            inv_c.append(np.repeat(inv[i], data[i].shape[0]))
+            if not signal_split:
+                label_c.append(np.repeat(label[i], data[i].shape[0]))
+                temp = np.tile(core_name[i], data[i].shape[0])
+                core_name_c.append(temp.reshape((data[i].shape[0], 1)))
+
     data_c = np.concatenate(data_c).astype('float32')
-    label_c = to_categorical(np.concatenate(label_c))
-    core_name_c = to_categorical(np.concatenate(core_name_c))
-    # inv_c = np.concatenate(inv_c)
-    return data_c, label_c, core_name_c, None
+    data_c = fix_dim(data_c, dataset_name)
+    inv_c = np.concatenate(inv_c)
+    inv_out = inv_c if use_inv else None
+
+    if signal_split:
+        label_c = to_categorical(label.squeeze())
+        core_name_c = to_categorical(core_name.squeeze())
+    else:
+        label_c = to_categorical(np.concatenate(label_c))
+        core_name_c = to_categorical(np.concatenate(core_name_c))
+
+    # manually balance the number of cancers and benigns
+    # data_c, label_c, core_name_c, inv_out = manual_balance(data_c, label_c, core_name_c, inv_out)
+    return data_c, label_c, core_name_c, inv_out
 
 
-def create_datasets_test_Exact(data_file, state, norm='Min_Max', min_inv=0.4, augno=0, inv_state='normal',
-                               input_data=None,
-                               return_array=False, train_stats=None):
+def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', min_inv=0.4, augno=0,
+                               input_data=None, inv_state='normal', return_array=False, train_stats=None,
+                               signal_split=False, use_inv=True):
     if input_data is None:
         input_data = load_matlab(data_file)
 
-    data_test = input_data["data_" + state]  # [0]
-    label_test = input_data["label_" + state]  # [0]
+    data_test = input_data["data_" + state]
+    label_inv = input_data["inv_" + state]
+    # label_test = (label_inv > 0).astype('uint8')
+    label_test = input_data['label_' + state].astype('uint8')
     CoreN_test = input_data["corename_" + state]
     patient_id_bk = input_data["PatientId_" + state]
     gs_bk = input_data["GS_" + state]
     true_label = label_test
-    # gs_bk = [str(lbl[0][0][0]) for i, lbl in enumerate(GS)]
-    # roi_coors_test = input_data['roi_coors_' + state]
-    # label_inv = input_data["inv_" + state]  # [0]
-    # label_test = (label_inv > 0).astype('uint8')
-    # involvement_bk = input_data["inv_" + state]  # [0]
-    # gs_bk = np.array(input_data["GS_" + state])  # [0]
 
-    # included_idx = [False if ((inv < min_inv) and (inv > 0)) else True for inv in label_inv]
+    included_idx = [False if ((inv < min_inv) and (inv > 0)) else True for inv in label_inv]
 
     corelen = []
     target_test = []
@@ -638,37 +769,44 @@ def create_datasets_test_Exact(data_file, state, norm='Min_Max', min_inv=0.4, au
 
     # Working with BK dataset
     bags_test = []
-    # sig_inv_test = []
+    sig_inv_test = []
     for i in range(len(data_test)):
-        # if included_idx[i]:
-        bags_test.append(data_test[i])
-        target_test.append(np.repeat(label_test[i], data_test[i].shape[0]))
-        # temp=np.repeat(onehot_corename(CoreN_test[i]),data_test[i].shape[0])
-        temp = np.tile(CoreN_test[i], data_test[i].shape[0])
-        name_tst.append(temp.reshape((data_test[i].shape[0], 1)))
-        corelen.append(data_test[i].shape[0])
-        # if label_inv[i] == 0:
-        #     sig_inv_test.append(np.repeat(label_inv[i], data_test[i].shape[0]))
-        # elif inv_state == 'uniform':
-        #     dist = abs(label_inv[i] - np.array([0.25, 0.5, 0.75, 1]))
-        #     min_ind = np.argmin(dist)
-        #     temp_inv = abs(torch.rand(data_test[i].shape[0]) * 0.25) + 0.25 * min_ind
-        #     sig_inv_test.append(temp_inv)
-        # elif inv_state == 'normal':
-        #     temp_inv = torch.randn(data_test[i].shape[0]) * np.sqrt(0.1) + label_inv[i]
-        #     sig_inv_test.append(np.abs(temp_inv))
-        # else:
-        #     sig_inv_test.append(np.repeat(label_inv[i], data_test[i].shape[0]))
+        if included_idx[i] or (not use_inv):
+            bags_test.append(data_test[i])
+            corelen.append(data_test[i].shape[0])
+            if not signal_split:
+                target_test.append(np.repeat(label_test[i], data_test[i].shape[0]))
+                temp = np.tile(CoreN_test[i], data_test[i].shape[0])
+                name_tst.append(temp.reshape((data_test[i].shape[0], 1)))
+            if label_inv[i] == 0:
+                sig_inv_test.append(np.repeat(label_inv[i], data_test[i].shape[0]))
+            elif inv_state == 'uniform':
+                dist = abs(label_inv[i] - np.array([0.25, 0.5, 0.75, 1]))
+                min_ind = np.argmin(dist)
+                temp_inv = abs(torch.rand(data_test[i].shape[0]) * 0.25) + 0.25 * min_ind
+                sig_inv_test.append(temp_inv)
+            elif inv_state == 'normal':
+                temp_inv = torch.randn(data_test[i].shape[0]) * np.sqrt(0.1) + label_inv[i]
+                sig_inv_test.append(np.abs(temp_inv))
+            else:
+                sig_inv_test.append(np.repeat(label_inv[i], data_test[i].shape[0]))
 
     signal_test = np.concatenate(bags_test)
-    target_test = np.concatenate(target_test)
-    name_tst = to_categorical(np.concatenate(name_tst))
-    # sig_inv_test = np.concatenate(sig_inv_test)
+    signal_test = fix_dim(signal_test, dataset_name)
+    sig_inv_test = np.concatenate(sig_inv_test)
+    patient_id_bk = patient_id_bk[included_idx]
+    gs_bk = gs_bk[included_idx]
+    label_inv = label_inv[included_idx]
+    # label_inv_out = label_inv
+    label_inv_out = label_inv if use_inv else None
 
-    # roi_coors_test = [roi_coors_test[i] for i in range(len(roi_coors_test)) if included_idx[i] == 1]
-    # patient_id_bk = patient_id_bk[included_idx]
-    # gs_bk = gs_bk[included_idx]
-    # label_inv = label_inv[included_idx]
+    if signal_split:
+        target_test = label_test.squeeze()
+        name_tst = to_categorical(CoreN_test.squeeze())
+        true_label = [target_test[0]]
+    else:
+        target_test = np.concatenate(target_test)
+        name_tst = to_categorical(np.concatenate(name_tst))
 
     if train_stats:
         x_train_min, x_train_max = train_stats
@@ -682,12 +820,35 @@ def create_datasets_test_Exact(data_file, state, norm='Min_Max', min_inv=0.4, au
 
     label_test = to_categorical(target_test)
 
-    # tst_ds = TensorDataset(torch.tensor(signal_test, dtype=torch.float32).unsqueeze(1),
-    # torch.tensor(label_test, dtype=torch.uint8),
-    # torch.tensor(name_tst, dtype=torch.uint8),
-    # torch.tensor(sig_inv_test, dtype=torch.float32).unsqueeze(1))
-    # return tst_ds, corelen, label_inv, patient_id_bk, gs_bk, roi_coors_test
-    tst_ds = TensorDataset(torch.tensor(signal_test, dtype=torch.float32).unsqueeze(1),
+    tst_ds = TensorDataset(torch.tensor(signal_test, dtype=torch.float32),
+                           torch.tensor(label_test, dtype=torch.uint8),
+                           torch.tensor(name_tst, dtype=torch.uint8),
+                           torch.tensor(sig_inv_test, dtype=torch.float32).unsqueeze(1)) if use_inv else \
+             TensorDataset(torch.tensor(signal_test, dtype=torch.float32),
                            torch.tensor(label_test, dtype=torch.uint8),
                            torch.tensor(name_tst, dtype=torch.uint8))
-    return tst_ds, corelen, None, patient_id_bk, gs_bk, None, true_label
+    return tst_ds, corelen, label_inv_out, patient_id_bk, gs_bk, None, true_label
+
+def fix_dim(data, dataset_name):
+    if '2D' in dataset_name:
+        tmp = np.swapaxes(data, 2, 3)
+        # return np.swapaxes(tmp.reshape((tmp.shape[0], tmp.shape[1], -1)),1,2)
+        # return tmp.reshape((tmp.shape[0], tmp.shape[1], -1))
+        return tmp.reshape((tmp.shape[0], 1, tmp.shape[1], -1))
+    else:
+        return data[:, np.newaxis, :]
+
+def manual_balance(data_c, label_c, core_name_c, inv_out):
+    no_cancer = (label_c[:,1]==1).sum()
+    cancer_ind = np.where(label_c[:, 1] == 1)
+    benign_ind = np.where(label_c[:, 0] == 1)
+
+    benign_ind = sk.shuffle(benign_ind[0], random_state=0)
+    benign_ind = benign_ind[:no_cancer]
+    ind = np.concatenate((benign_ind,cancer_ind[0])).astype(int)
+
+    data_c = data_c[ind, ...]
+    label_c = label_c[ind, ...]
+    core_name_c = core_name_c[ind, ...]
+    inv_out = inv_out[ind]
+    return data_c, label_c, core_name_c, inv_out

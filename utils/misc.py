@@ -166,6 +166,8 @@ def parse_args() -> dict:
                         help="Path for the config file")
     parser.add_argument("--eval", action='store_true', default=False,
                         help='Perform evaluation; Training is performed if not set')
+    parser.add_argument("--core_th", type=float, default=0.5,
+                        help='Threshold used to convert signals predictions to cores')
     args = parser.parse_args()
 
     # Remove arguments that were not set and do not have default values
@@ -175,7 +177,6 @@ def parse_args() -> dict:
 
 def read_yaml(verbose=False, setup_dir=False) -> yaml:
     """Read config files stored in yml"""
-
     # Read commandline arguments
     args = parse_args()
     if verbose:
@@ -248,8 +249,9 @@ def setup_directories(opt):
     for k, v in opt.paths.__dict__.items():
         opt.paths[k] = v.replace('exp_name',
                                  '/'.join([opt.exp_name, prefix + opt.exp_suffix]))
-
-    opt.data_source.data_root = '/'.join((opt.project_root, opt.data_source.data_root))
+    # commented to run on server
+    if not ('home/' in opt.project_root):
+        opt.data_source.data_root = '/'.join((opt.project_root, opt.data_source.data_root))
     if hasattr(opt.paths, 'self_train_checkpoint'):
         opt.paths.self_train_checkpoint = '/'.join((opt.project_root, opt.paths.self_train_checkpoint))
 

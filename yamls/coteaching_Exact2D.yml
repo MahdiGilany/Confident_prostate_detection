@@ -1,0 +1,91 @@
+project_root: C:\Users\Mahdi\Desktop\Summer21\RA\Codes\Minh_Mahdi_mod\prostate_cancer_classification # /home/mgilani/sshfs/Minh_Mahdi_mod/prostate_cancer_classification
+tasks: [ 'cls', ]
+tasks_num_class: [ 2, ]
+input_channels: [ 1, ]
+num_workers: 6
+model_name: coteaching
+self_train: False
+variational: False
+multitask: False
+is_eval: False
+
+paths: # 'exp_name' will be replaced by actual experiment name
+  log_dir: experiments/exp_name/logs
+  result_dir: experiments/exp_name/results
+  checkpoint_dir: experiments/exp_name/checkpoints
+  self_train_checkpoint: 'ckpt2/inception/SelfTime/ProstateTeUS/magnitude_warp_time_warp/0.2_3C/0/backbone_best.tar'
+
+data_source:
+  dataset: Exact2D_286x15
+  data_root: data # /home/mgilani/data/Exact # data
+  train_set: Exact_withInv_D3_ds5_all_2021-26-8.mat # BKcomp_D3_ds5_all_2021-29-7.mat # BKcomp_D1_ds5_all_2021-2-7.mat
+  test_set: Exact_withInv_D3_ds5_all_2021-26-8.mat # BKcomp_D3_ds5_all_2021-29-7.mat # BKcomp_D1_ds5_all_2021-2-7.mat
+  unlabelled_set: none #unlabelled/BK_RF_P1_140_balance__20210203-175808_unsup.npy
+
+# Tunable (iteratively) hyper-parameters
+seed: 0
+n_epochs: 100
+total_iters: 20000
+#backbone: [ Inception, Inception ]  # SimConv4 Inception resnet_ucr
+#backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
+backbone: [ Classifier3L_2D, Classifier3L_2D ]  # SimConv4 Inception resnet_ucr Classifier3L
+exp_name: coteaching_semi
+exp_suffix: ''
+test_batch_size: 512 # 2048
+train_batch_size:  512 # 2048
+lr: 1e-3
+normalize_input: none
+temperature: .5
+#aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
+unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
+aug_type: 'none'
+loss_name: 'elr'  # 'gce'
+min_inv: .7
+
+train:
+  loss_coefficients: [ 1., 0.1 ]
+  n_views: 1
+  lr_scheduler:
+    patience: 999
+    trials: 0
+    epoch_decay_start: 50
+  resume: False
+  retrain_resume: False
+  policy_iter: best
+  which_iter: warmup
+  init_method: equal
+  log_interval: 1
+  val_interval: 1
+  switch_core_no: 0
+  coteaching:
+    num_gradual: 10
+    exponent: 1
+    forget_rate: .1
+    use_plus: False
+    relax: False  # False True
+
+arch:
+  # inception
+  num_blocks: 5
+  out_channels: 16 # 16
+  # resnet
+  mid_channels: 32
+  num_positions: 12
+
+tensorboard:
+  flush_secs: 10
+  filename_suffix: ''
+
+test:
+  test_interval: 1
+  which_iter: best
+
+abstention:
+  learn_epochs: 5
+  abst_rate: 0.1
+  alpha_final: 1.
+  alpha_init_factor: 64.
+  pid_tunings: [.1, .1, .05]
+elr_alpha: 0
+elr_beta: .7
+

@@ -63,10 +63,10 @@ class CoTeaching(Model):
         # Set-up learning rate scheduler alpha and betas for Adam Optimizer
         net1, net2 = self.network_list
 
-        # self.optimizer1 = optim.Adam(self.params_list[0], lr=float(lr), amsgrad=True)  # , weight_decay=1e-3)
-        # self.optimizer2 = optim.Adam(self.params_list[1], lr=float(lr), amsgrad=True)  # , weight_decay=1e-3)
-        self.optimizer1 = NovoGrad(self.params_list[0], lr=float(lr), grad_averaging=True, weight_decay=0.001)
-        self.optimizer2 = NovoGrad(self.params_list[1], lr=float(lr), grad_averaging=True, weight_decay=0.001)
+        self.optimizer1 = optim.AdamW(self.params_list[0], lr=float(lr), amsgrad=True)  # , weight_decay=1e-3)
+        self.optimizer2 = optim.AdamW(self.params_list[1], lr=float(lr), amsgrad=True)  # , weight_decay=1e-3)
+        # self.optimizer1 = NovoGrad(self.params_list[0], lr=float(lr), grad_averaging=True, weight_decay=0.001)
+        # self.optimizer2 = NovoGrad(self.params_list[1], lr=float(lr), grad_averaging=True, weight_decay=0.001)
 
         # self.scheduler1 = torch.optim.lr_scheduler.OneCycleLR(self.optimizer1, max_lr=lr, steps_per_epoch=554,
         #                                                       epochs=n_epochs)
@@ -159,7 +159,9 @@ class CoTeaching(Model):
             loss2 = loss2 + loss2_unsup
 
         if kwargs['x_unsup'] is not None:
-            x_unsup = kwargs['x_unsup'].unsqueeze(1)
+            # todo unsqueeze is removed (check whether it's correct)
+            # x_unsup = kwargs['x_unsup'].unsqueeze(1)
+            x_unsup = kwargs['x_unsup']
             out_unsup_11, out_unsup_12 = self.infer(x_unsup[::2])
             out_unsup_21, out_unsup_22 = self.infer(x_unsup[1::2])
             loss_unsup_1 = F.kl_div(F.softmax(out_unsup_11, dim=1), F.softmax(out_unsup_21, dim=1),
@@ -213,7 +215,7 @@ class CoTeaching(Model):
 
                 # Forward & Backward
                 out1, out2, loss1, loss2, extra = self.forward_backward(
-                    x_raw.unsqueeze(1), n_batch, y_batch,
+                    x_raw, n_batch, y_batch,
                     loss_weights=loss_weights,
                     forget_rate=forget_rate,
                     step=epoch * i,

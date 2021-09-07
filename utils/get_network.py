@@ -21,7 +21,7 @@ def _construct_network(device, opt, backbone, num_class=None, num_positions=None
                            num_positions=opt.arch.num_positions if num_positions is None else num_positions,
                            self_train=opt.self_train,
                            variational=opt.variational,
-                           verbose=True)
+                           verbose=False)
 
     return _get_network
 
@@ -67,8 +67,8 @@ def construct_network(device, opt):
             backbones = opt.backbone * 2
         # Create two networks, in which the first one does not have location encoder
         networks = []
-        # for (num_positions, backbone) in zip([opt.arch.num_positions, opt.arch.num_positions], backbones):
-        for (num_positions, backbone) in zip([0, 0], backbones):
+        for (num_positions, backbone) in zip([opt.arch.num_positions, opt.arch.num_positions], backbones):
+        # for (num_positions, backbone) in zip([0, 0], backbones):
             networks.append(_construct_network(device, opt, backbone, num_class, num_positions))
         return networks
     return _construct_network(device, opt, opt.backbone, num_class)
@@ -88,7 +88,7 @@ def construct_classifier(device, opt):
     return _construct_classifier(device, opt, opt.arch.num_positions)
 
 
-def get_network(backbone, device, in_channels, nb_class, num_positions=8,
+def get_network(backbone, device, in_channels, nb_class, num_positions=12,
                 verbose=True, self_train=False, num_blocks=3,
                 out_channels=30, mid_channels=32, variational=False,
                 **kwargs):
@@ -116,12 +116,11 @@ def get_network(backbone, device, in_channels, nb_class, num_positions=8,
         net = _net(num_classes=nb_class, in_channels=in_channels)
     elif backbone == 'fnet':
         net = FNet(dim=200, depth=5, mlp_dim=32, dropout=.5, num_pred_classes=nb_class, num_positions=num_positions)
-    else:
+    elif backbone == 'classifier3l':
         # This network already has a positional encoder
-        net = Classifier_3L(in_channels, nb_class)
-        if verbose:
-            summarize_net(net, in_channels, num_positions)
-        return net.to(device)
+        net = Classifier_3L(in_channels, nb_class, num_positions=num_positions)
+    elif backbone == 'classifier3l_2d':
+        net = Classifier_3L_2D(in_channels, nb_class, num_positions=num_positions)
 
     # Wrap the feature extractor with the position encoding network
     # net = PosEncoder(net, num_positions=num_positions, variational=variational)
@@ -131,7 +130,7 @@ def get_network(backbone, device, in_channels, nb_class, num_positions=8,
 
 
 def summarize_net(net, in_channels, num_positions):
-    input_size = [(2, in_channels, 200), ]
+    input_size = [(2, in_channels, 286), ]
     if num_positions > 0:
         input_size = [input_size, (2, num_positions)]
     summary(net, input_size=input_size)

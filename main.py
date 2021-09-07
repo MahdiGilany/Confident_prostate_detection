@@ -9,6 +9,7 @@ def train(opt):
 
     # Datasets / Dataloader
     trn_ds, train_set, val_set, test_set = create_datasets(
+        dataset_name=opt.data_source.dataset,
         data_file='/'.join([opt.data_source.data_root, opt.data_source.train_set]),
         unlabelled_data_file='/'.join([opt.data_source.data_root, opt.data_source.unlabelled_set]),
         norm=opt.normalize_input, aug_type=opt.aug_type, min_inv=opt.min_inv, n_views=opt.train.n_views,
@@ -107,10 +108,9 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
 
     # Calculating & logging metrics
     scores = {'acc_s': acc_s}
-    # scores = compute_metrics(predicted_involvement, true_involvement,
-    #                          current_epoch=current_epoch, verbose=True, scores=scores)
-    scores = compute_metrics(predicted_involvement, true_labels[0],
-                             current_epoch=current_epoch, verbose=True, scores=scores)
+    scores = compute_metrics(predicted_involvement, true_involvement,
+                             current_epoch=current_epoch, verbose=True, scores=scores,
+                             threshold=opt.core_th)
 
     # import pylab as plt
     # heatmaps_dir = opt.paths.result_dir + f'_heatmaps/{state}'
@@ -118,14 +118,10 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # for i, pm in enumerate(prediction_maps):
     #     plt.imsave(f'{heatmaps_dir }/{i}_{true_involvement[i]:.2f}.png', pm, vmin=0, vmax=1, cmap='gray')
 
-    # net_interpretation(predicted_involvement, patient_id_bk,
-    #                    true_involvement, gs_bk, opt.paths.result_dir,
-    #                    ood=ood,
-    #                    current_epoch=current_epoch, set_name=set_name, writer=writer, scores=scores)
     net_interpretation(predicted_involvement, patient_id_bk,
-                       true_labels[0], gs_bk, opt.paths.result_dir,
-                       ood=ood,
-                       current_epoch=current_epoch, set_name=set_name, writer=writer, scores=scores)
+                       true_involvement, gs_bk, opt.paths.result_dir,
+                       ood=ood, current_epoch=current_epoch, set_name=set_name,
+                       writer=writer, scores=scores, threshold=opt.core_th)
 
     if set_name.lower() == 'train':
         predicted_involvement = np.concatenate(
@@ -135,7 +131,8 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
         for score_name, score in zip(scores.keys(), scores.values()):
             writer.add_scalar(f'{set_name}/{score_name.upper()}', score, current_epoch)
 
-    return scores['acc'], predicted_involvement
+    # return scores['acc'], predicted_involvement
+    return scores['acc_s'], predicted_involvement
 
 
 def main():
