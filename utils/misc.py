@@ -346,8 +346,14 @@ def init_weights(net, init_fn):
 
 ########################################################################
 def load_matlab(filename):
-    with open(filename, 'rb') as fp:
-        return matlab.loadmat(fp, struct_as_record=False, squeeze_me=True)
+    # import h5py
+    # with h5py.File(filename, 'rb') as f:
+    #     return f.keys()
+    import mat73
+    return mat73.loadmat(filename)
+    # with open(filename, 'rb') as fp:
+
+        # return matlab.loadmat(fp, struct_as_record=False, squeeze_me=True)
 
 
 def squeeze_Exact(inputdata):

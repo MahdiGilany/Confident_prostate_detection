@@ -132,7 +132,7 @@ class SepConv2d(nn.Module):
 
     def __init__(self, ni, no, kernel, stride, pad,
                  drop=None, bn=True,
-                 activ=lambda: nn.PReLU()):
+                 activ=lambda: nn.ReLU()):
 
         super().__init__()
         assert drop is None or (0.0 < drop < 1.0)
@@ -148,13 +148,12 @@ class SepConv2d(nn.Module):
     def forward(self, x):
         return self.layers(x)
 
-
 class Classifier3L_2D(nn.Module):
     def __init__(self, raw_ni, no, drop=.5, num_positions=12):
         super().__init__()
         self.num_positions = num_positions
         self.raw = nn.Sequential(
-            SepConv2d(raw_ni, 32, (5,1), 2, 3, drop=drop),
+            SepConv2d(raw_ni, 32, (5,1), (2,1), 3, drop=drop),
             SepConv2d(32, 32, (3,2), (2,1), 1, drop=drop),
             SepConv2d(32, 64, (5, 3), (4, 2), 3, drop=drop),
             SepConv2d(64, 64, 3, 1, 1, drop=drop),
@@ -162,6 +161,27 @@ class Classifier3L_2D(nn.Module):
             SepConv2d(128, 128, 3, 2, 1, drop=drop),
             SepConv2d(128, 256, 1, 4, 2),
             Flatten())
+        # self.raw1 = SepConv2d(raw_ni, 32, (5, 1), (1, 1), 3, drop=drop)
+        # self.raw2 = SepConv2d(32, 32, (3, 2), (2, 1), 1, drop=drop)
+        # self.raw3 = SepConv2d(32, 64, (3, 3), (2, 2), 3, drop=drop)
+        # self.raw4 = SepConv2d(64, 64, 3, 1, 1, drop=drop)
+        # # self.maxpool = nn.MaxPool2d((2,2))
+        # self.raw5 = SepConv2d(64, 128, 2, 1, 1, drop=drop)
+        # self.raw6 = SepConv2d(128, 128, 3, 2, 1, drop=drop)
+        # self.raw7 = SepConv2d(128, 256, 2, 2, 1)
+        # self.flatten = Flatten()
+        # self.linear1 = nn.Sequential(nn.Linear(3072, 1024), nn.PReLU())
+
+        # self.raw = nn.Sequential(
+        #     SepConv2d(raw_ni, 32, (5,5), (3,2), 3, drop=drop),
+        #     # nn.MaxPool2d(2),
+        #     SepConv2d(32, 32, (3,2), (2,1), 1, drop=drop),
+        #     SepConv2d(32, 64, (5, 3), (4, 2), 3, drop=drop),
+        #     # SepConv2d(64, 64, 3, 1, 1, drop=drop),
+        #     # SepConv2d(64, 128, (5, 4), (4, 1), 1, drop=drop),
+        #     # SepConv2d(128, 128, 3, 2, 1, drop=drop),
+        #     # SepConv2d(128, 256, 1, 4, 2),
+        #     Flatten())
         self.feat1 = nn.Sequential(
             nn.Dropout(drop if drop else 0),
             nn.Linear(1024 + self.num_positions, 512), nn.PReLU(), nn.BatchNorm1d(512))
@@ -190,9 +210,34 @@ class Classifier3L_2D(nn.Module):
 
     def forward(self, t_raw, n_raw):
         raw_out = self.raw(t_raw)
+        # x = self.raw1(t_raw)
+        # x = self.raw2(x)
+        # x = self.raw3(x)
+        # x = self.raw4(x)
+        # x = self.maxpool(x)
+        # x = self.raw5(x)
+        # x = self.raw6(x)
+        # x = self.raw7(x)
+        # raw_out = self.flatten(x)
+        # raw_out = self.linear1(x)
         feat = torch.cat((raw_out, n_raw.float()), 1)
         f1 = self.feat1(feat)
         feat = torch.cat((f1, n_raw.float()), 1)
         f2 = self.feat2(feat)
         feat = torch.cat((f2, n_raw.float()), 1)
         return self.out(feat)
+
+
+if __name__ == "__main__":
+    import numpy as np
+    from torchinfo import summary
+    # for net_name in __all__:
+    #     if net_name.startswith('resnet20'):
+    #         print(net_name)
+    #         test(globals()[net_name]())
+    #         print()
+    net = Classifier3L_2D(1, 2, num_positions=12)
+    summary(net, input_size=[(2, 1, 286, 5), (2, 12)])
+
+    # net = Classifier3LV1(1, 2, num_positions=12)
+    # summary(net, input_size=[(2, 1, 286), (2, 12)])

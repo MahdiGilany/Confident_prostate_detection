@@ -47,8 +47,8 @@ def loss_coteaching(
     ind_1_sorted = np.argsort(loss_1.data.cpu())
     loss_1_sorted = loss_1[ind_1_sorted]
 
-    # loss_2 = F.cross_entropy(y_2, t, reduction='none')
-    loss_2 = IsoMaxLossSecondPart()(y_2, t, reduction='none')
+    loss_2 = F.cross_entropy(y_2, t, reduction='none')
+    # loss_2 = IsoMaxLossSecondPart()(y_2, t, reduction='none')
     # loss_2 = f_score(y_2, t, reduction='none')
     ind_2_sorted = np.argsort(loss_2.data.cpu())
 
@@ -73,19 +73,19 @@ def loss_coteaching(
     # ind_1_update = random_replacing(t, ind_1_update)
     # ind_2_update = random_replacing(t, ind_2_update)
 
-    # loss_1_update = F.cross_entropy(y_1[ind_2_update], t[ind_2_update], reduction='none')
-    # loss_2_update = F.cross_entropy(y_2[ind_1_update], t[ind_1_update], reduction='none')
+    loss_1_update = F.cross_entropy(y_1[ind_2_update], t[ind_2_update], reduction='none')
+    loss_2_update = F.cross_entropy(y_2[ind_1_update], t[ind_1_update], reduction='none')
 
-    loss_1_update = loss_func1(
-        y_1[ind_2_update], t[ind_2_update], reduction='none',
-        weight=None,
-        # weight=class_weights_2,
-        sub_index=ind_2_update, **kwargs)
-    loss_2_update = loss_func2(
-        y_2[ind_1_update], t[ind_1_update], reduction='none',
-        weight=None,
-        # weight=class_weights_1,
-        sub_index=ind_1_update, **kwargs)
+    # loss_1_update = loss_func1(
+    #     y_1[ind_2_update], t[ind_2_update], reduction='none',
+    #     weight=None,
+    #     # weight=class_weights_2,
+    #     sub_index=ind_2_update, **kwargs)
+    # loss_2_update = loss_func2(
+    #     y_2[ind_1_update], t[ind_1_update], reduction='none',
+    #     weight=None,
+    #     # weight=class_weights_1,
+    #     sub_index=ind_1_update, **kwargs)
 
     loss_1_update *= kwargs['loss_weights'][ind_2_update]
     loss_2_update *= kwargs['loss_weights'][ind_1_update]

@@ -16,13 +16,20 @@ def train(opt):
         unsup_aug_type=opt.unsup_aug_type,
     )
     trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True)
+    # val_ds = val_set[0]
+    # tst_ds = test_set[0]
+    # val_dl = create_loaders_test(val_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
+    # tst_dl = create_loaders_test(tst_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
+
+
     opt.num_samples = {'train': len(trn_ds), 'val': len(val_set[0]), 'test': len(test_set[0])}
 
     # Setup models and training strategy
     # ToDo: Multiple GPUS
     # device = torch.device(
     #     f'cuda:{",".join([str(_) for _ in range(torch.cuda.device_count())])}') if torch.cuda.is_available() else 'cpu'
-    device = torch.device('cuda')
+    device = torch.device(f'cuda:{opt.gpus_id[0]}' if torch.cuda.is_available() else 'cpu')
+    print('Cuda?', device)
     network = construct_network(device, opt)
     model = get_model(opt, network, device, 'train',
                       classifier=construct_classifier(device, opt) if opt.self_train else None)
@@ -92,7 +99,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     if dataset_test is None:  # For standalone evaluation
         # train_stat is missing currently, the evaluation perhaps will be wrong
         datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = create_datasets_test(
-            '/'.join([opt.data_source.data_root, opt.data_source.test_set]),
+            '/'.join([opt.data_source.data_root, opt.data_source.test_set]), dataset_name=opt.data_source.dataset,
             min_inv=0.4, state=state, norm=opt.normalize_input)
     else:  # For periodically testing
         datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = dataset_test
@@ -101,13 +108,13 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
 
     # Evaluation
-    predictions, ood_scores, acc_s = model.eval(tst_dl, net_index=1)
+    predictions, ood_scores, acc_s, acc_sb = model.eval(tst_dl, net_index=1)
 
     # Infer core-wise predictions
     predicted_involvement, ood, prediction_maps = infer_core_wise(predictions, core_len, roi_coors, ood_scores)
 
     # Calculating & logging metrics
-    scores = {'acc_s': acc_s}
+    scores = {'acc_s': acc_s, 'acc_sb': acc_sb}
     scores = compute_metrics(predicted_involvement, true_involvement,
                              current_epoch=current_epoch, verbose=True, scores=scores,
                              threshold=opt.core_th)
@@ -132,7 +139,8 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
             writer.add_scalar(f'{set_name}/{score_name.upper()}', score, current_epoch)
 
     # return scores['acc'], predicted_involvement
-    return scores['acc_s'], predicted_involvement
+    # return scores['acc_s'], predicted_involvement
+    return scores['acc_b'], predicted_involvement
 
 
 def main():

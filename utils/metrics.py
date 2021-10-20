@@ -10,6 +10,7 @@ def cm_score(cfs_mtx):
         tn, fp, fn, tp = cfs_mtx.ravel()
     except:
         tn, fp, fn, tp = 0, 1, 1, 0
+        print("exception occured!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
     def sen(*args):
         return tp / (tp + fn)  # sensitivity

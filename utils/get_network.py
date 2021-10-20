@@ -112,14 +112,25 @@ def get_network(backbone, device, in_channels, nb_class, num_positions=12,
         net = ResNet(in_channels, mid_channels=mid_channels,
                      num_pred_classes=nb_class, num_positions=num_positions)
     elif backbone == 'resnet':
-        _net = resnet20 if not variational else resnet20_variational
+        # _net = resnet20 if not variational else resnet20_variational
+        _net = resnet18
+        net = _net(pretrained=False, num_classes=nb_class, in_channels=in_channels)
+    elif backbone == 'densenet':
+        # _net = resnet20 if not variational else resnet20_variational
+        _net = densenet121
+        net = _net(pretrained=False, num_classes=nb_class, in_channels=in_channels)
+    elif backbone == 'unet_modf':
+        # _net = resnet20 if not variational else resnet20_variational
+        _net = Unet
         net = _net(num_classes=nb_class, in_channels=in_channels)
     elif backbone == 'fnet':
+        #
         net = FNet(dim=200, depth=5, mlp_dim=32, dropout=.5, num_pred_classes=nb_class, num_positions=num_positions)
     elif backbone == 'classifier3l':
         # This network already has a positional encoder
         net = Classifier_3L(in_channels, nb_class, num_positions=num_positions)
     elif backbone == 'classifier3l_2d':
+        #
         net = Classifier_3L_2D(in_channels, nb_class, num_positions=num_positions)
 
     # Wrap the feature extractor with the position encoding network

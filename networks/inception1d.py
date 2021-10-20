@@ -190,11 +190,11 @@ class InceptionBlock(nn.Module):
 
 def main():
     from torchinfo import summary
-    num_blocks, in_channels, pred_classes = 2, 256, 2
+    num_blocks, in_channels, pred_classes = 5, 1, 2
     net = InceptionModel(num_blocks, in_channels, out_channels=16,
-                         bottleneck_channels=12, kernel_sizes=5, use_residuals='default', stride=1,
+                         bottleneck_channels=12, kernel_sizes=15, use_residuals='default', stride=2,
                          num_pred_classes=pred_classes, num_positions=0)
-    summary(net, input_size=[(2, in_channels, 15), (2, 8)])
+    summary(net, input_size=[(2, in_channels, 286), (2, 12)])
 
     # net = InceptionBlock(in_channels=in_channels, out_channels=3,
     #                      residual=True, stride=1, bottleneck_channels=12,

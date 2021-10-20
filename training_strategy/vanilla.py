@@ -6,6 +6,8 @@ from torch.nn import functional as F
 
 from utils.get_loss_function import *
 
+from sklearn.metrics import confusion_matrix
+
 
 class Model:
     def __init__(self, device, num_class, mode, aug_type='none', network=None,
@@ -84,6 +86,7 @@ class Model:
         entropic_scores = []
         total = correct = 0
 
+        cm = np.zeros((2,2))
         # apply model on test signals
         for batch in tst_dl:
             x_raw, y_batch, n_batch, *_ = [t.to(self.device) for t in batch]
@@ -97,10 +100,14 @@ class Model:
             outputs.append(pred.cpu().numpy())
             total += y_batch.size(0)
             correct += (pred.argmax(dim=1) == torch.argmax(y_batch, dim=1)).sum().item()
+            # s = confusion_matrix(y_batch.argmax(dim=1).cpu(), pred.argmax(dim=1).cpu(), labels=[0,1])
+            cm += confusion_matrix(y_batch.argmax(dim=1).cpu(), pred.argmax(dim=1).cpu(), labels=[0,1])
 
+        tn, fp, fn, tp = cm.ravel()
+        acc_sb = (tp/(tp+fn) + tn/(tn+fp))/2.0
         outputs = np.concatenate(outputs)
         entropic_scores = np.concatenate(entropic_scores)
-        return outputs, entropic_scores, correct / total
+        return outputs, entropic_scores, correct / total, acc_sb
 
     def forward_backward_semi_supervised(self, *args, **kwargs):
         pass

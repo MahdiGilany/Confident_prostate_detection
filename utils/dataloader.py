@@ -20,11 +20,11 @@ def make_weights_for_balanced_classes(dataset, nclasses):
     return weight
 
 
-def create_loaders_test(data, bs=128, jobs=0):
+def create_loaders_test(data, bs=128, jobs=0, pin_memory=False):
     """Wraps the datasets returned by create_datasets function with data loaders."""
 
     tst_ds = data  # , tst_ds
-    tst_dl = DataLoader(tst_ds, batch_size=bs, shuffle=False, num_workers=jobs)
+    tst_dl = DataLoader(tst_ds, batch_size=bs, shuffle=False, num_workers=jobs, pin_memory=pin_memory)
     return tst_dl
 
 

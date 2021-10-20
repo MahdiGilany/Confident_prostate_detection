@@ -22,7 +22,7 @@ def infer_core_wise(predictions, core_len, roi_coors, ood_scores=None):
         core_l1.append(np.greater(temp[:, 1], temp[:, 0]).sum() / core_len[i])
         temp = temp[:, 1]
         th = 0.5
-        core_feat1.append([temp[temp > th].mean(), len(temp[temp > th]), temp[temp < th].mean(), len(temp[temp < th])])
+        # core_feat1.append([temp[temp > th].mean(), len(temp[temp > th]), temp[temp < th].mean(), len(temp[temp < th])])
         core_ood.append(ood_scores)
         counter += core_len[i]
 

@@ -205,7 +205,29 @@ def remove_empty_data(input_data, set_name, p_thr=.2):
 
 
 def norm_01(x, *args):
-    return (x - x.min(axis=1, keepdims=True)) / (x.max(axis=1, keepdims=True) - x.min(axis=1, keepdims=True))
+    from sklearn.preprocessing import RobustScaler
+    transformer = args[1]
+
+    orig_shape = x.shape
+    flattened = x.flatten()[..., np.newaxis]
+
+    if transformer is None:
+        new_x = x.reshape(orig_shape[0], 286, -1)
+        new_x = np.swapaxes(new_x,1,2)
+        new_x = new_x.reshape(orig_shape[0]*15, 286)
+        transformer = RobustScaler().fit(new_x.T)
+        new_x = transformer.transform(new_x.T).T
+        new_x = new_x.reshape(orig_shape[0], 15, 286)
+        new_x = np.swapaxes(new_x,1,2)
+        x = new_x.reshape(orig_shape[0], 286, 3, 5)
+        return x
+
+    transfomed = transformer.transform(flattened)
+    x = transfomed[..., 0].reshape(orig_shape)
+
+    return x
+    # return (x - x.min(axis=1, keepdims=True)) / (x.max(axis=1, keepdims=True) - x.min(axis=1, keepdims=True))
+    # return (x - x.min()) / (x.max() - x.min())
 
 
 def norm_framemax(x, max_):
@@ -236,15 +258,22 @@ def stratify_groups(groups, num_time_series, marked_array, mark_low_threshold=.2
     return np.concatenate(row_idx), marked_array
 
 
-def normalize(input_data, set_name, to_framemax=False):
-    if to_framemax:
-        _norm = norm_framemax
-    else:
-        _norm = norm_01
+def normalize(input_data, set_name, to_all_cores=False, to_framemax=False):
+    _norm = norm_framemax if to_framemax else norm_01
+    frame_max = input_data[f'Frame_max_{set_name}']
+    transformer = None
 
-    max_ = input_data[f'Frame_max_{set_name}']
+    if to_all_cores:
+        from sklearn.preprocessing import RobustScaler
+        signal_data = input_data[f'data_{set_name}']
+        # signal_data = input_data[f'data_train']
+        list_s = [i for i in signal_data]
+        signal_data = np.concatenate(list_s)
+        a = signal_data.flatten()
+        transformer = RobustScaler().fit(a[...,np.newaxis])
+
     for i, x in enumerate(input_data[f'data_{set_name}']):
-        input_data[f'data_{set_name}'][i] = _norm(x.astype('float32'), max_[i])
+        input_data[f'data_{set_name}'][i] = _norm(x.astype('float32'), frame_max[i], transformer)
     return input_data
 
 
@@ -347,7 +376,7 @@ def shuffle_patients(input_data, signal_split=False):
     return input_data
 
 
-def preprocess(input_data, p_thr=.2, to_norm=True, shffl_patients=False, signal_split=False):
+def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal_split=False):
     """
     Remove data points which have percentage of zeros greater than p_thr
     :param input_data:
@@ -357,7 +386,7 @@ def preprocess(input_data, p_thr=.2, to_norm=True, shffl_patients=False, signal_
     :return:
     """
     for set_name in ['train', 'val', 'test']:
-        input_data = remove_empty_data(input_data, set_name, p_thr)
+        # input_data = remove_empty_data(input_data, set_name, p_thr)
         if to_norm:
             input_data = normalize(input_data, set_name, to_framemax=False)
     if shffl_patients or signal_split:
@@ -651,7 +680,7 @@ def _preprocess(x_train):
 ######################################################################################
 def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
                           unlabelled_data_file=None, unsup_aug_type=None,
-                          to_norm=False, signal_split=False, use_inv=True):
+                          to_norm=False, signal_split=False, use_inv=True, use_patch=False):
     """
     Create training, validation and test sets
     :param data_file:
@@ -689,7 +718,8 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     signal_train, label_train, name_train, inv_train = concat_data_Exact(included_idx, data_train, label_train,
                                                                          core_name_train, inv_train,
                                                                          dataset_name=dataset_name,
-                                                                         signal_split=signal_split, use_inv=use_inv)
+                                                                         signal_split=signal_split, use_inv=use_inv,
+                                                                         use_patch=use_patch)
 
     # unsup_data = np.concatenate(data_train)
     unsup_data = None
@@ -700,28 +730,30 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
                        )  # ['magnitude_warp', 'time_warp'])
 
     train_stats = None
-    train_set = create_datasets_test_Exact(None, min_inv=0.4, state='train', norm=norm, input_data=input_data,
+    train_set = create_datasets_test_Exact(None, min_inv=min_inv, state='train', norm=norm, input_data=input_data,
                                            train_stats=train_stats, dataset_name=dataset_name,
-                                           signal_split=signal_split, use_inv=use_inv)
+                                           signal_split=signal_split, use_inv=use_inv, use_patch=use_patch)
     val_set = create_datasets_test_Exact(None, min_inv=0.4, state='val', norm=norm, input_data=input_data,
                                          train_stats=train_stats, dataset_name=dataset_name,
-                                         signal_split=signal_split, use_inv=use_inv)
+                                         signal_split=signal_split, use_inv=use_inv, use_patch=use_patch)
     test_set = create_datasets_test_Exact(None, min_inv=0.4, state='test', norm=norm, input_data=input_data,
                                           train_stats=train_stats, dataset_name=dataset_name,
-                                          signal_split=signal_split, use_inv=use_inv)
+                                          signal_split=signal_split, use_inv=use_inv, use_patch=use_patch)
 
     return trn_ds, train_set, val_set, test_set
 
 
 def concat_data_Exact(included_idx, data, label=None, core_name=None, inv=None,
-                      signal_split=False, dataset_name=None, use_inv=True):
+                      signal_split=False, dataset_name=None, use_inv=True, use_patch=False):
     """ Concatenate data from different cores specified by 'included_idx' """
     core_counter = 0
     data_c, label_c, core_name_c, inv_c, core_len = [], [], [], [], []
+    corelen = []
     for i in range(len(data)):
         if included_idx[i] or (not use_inv):
             data_c.append(data[i])
             core_len.append(np.repeat(core_counter, data[i].shape[0]))
+            corelen.append(data[i].shape[0])
             core_counter += 1
             inv_c.append(np.repeat(inv[i], data[i].shape[0]))
             if not signal_split:
@@ -731,6 +763,10 @@ def concat_data_Exact(included_idx, data, label=None, core_name=None, inv=None,
 
     data_c = np.concatenate(data_c).astype('float32')
     data_c = fix_dim(data_c, dataset_name)
+    # import matplotlib.pyplot as plt
+    # for i in range(286):
+    #     plt.plot(range(15), data_c[15000, 0, i, :],'b')
+    # plt.show()
     inv_c = np.concatenate(inv_c)
     inv_out = inv_c if use_inv else None
 
@@ -743,12 +779,23 @@ def concat_data_Exact(included_idx, data, label=None, core_name=None, inv=None,
 
     # manually balance the number of cancers and benigns
     # data_c, label_c, core_name_c, inv_out = manual_balance(data_c, label_c, core_name_c, inv_out)
+
+    # creating patches
+    if use_patch:
+        data_c, label_c, core_name_c, inv_out, corelen = create_patch(data_c, label_c, core_name_c,
+                                                                      inv_out, corelen, window=26, overlap=15)
+
+    # seperating 3 different focal points as channels and using them as 3 independent data
+    # label_c = np.repeat(label_c,3, axis=0)
+    # core_name_c = np.repeat(core_name_c,3, axis=0)
+    # inv_out = np.repeat(inv_out,3, axis=0)
+
     return data_c, label_c, core_name_c, inv_out
 
 
 def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', min_inv=0.4, augno=0,
                                input_data=None, inv_state='normal', return_array=False, train_stats=None,
-                               signal_split=False, use_inv=True):
+                               signal_split=False, use_inv=True, use_patch=False):
     if input_data is None:
         input_data = load_matlab(data_file)
 
@@ -795,7 +842,7 @@ def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', m
     signal_test = fix_dim(signal_test, dataset_name)
     sig_inv_test = np.concatenate(sig_inv_test)
     patient_id_bk = patient_id_bk[included_idx]
-    gs_bk = gs_bk[included_idx]
+    gs_bk = np.array(gs_bk)[included_idx]
     label_inv = label_inv[included_idx]
     # label_inv_out = label_inv
     label_inv_out = label_inv if use_inv else None
@@ -819,7 +866,19 @@ def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', m
         return signal_test, corelen, None, patient_id_bk, gs_bk
 
     label_test = to_categorical(target_test)
+    # creating patches
+    if use_patch:
+        signal_test, label_test, name_tst, sig_inv_test, corelen = create_patch(signal_test, label_test, name_tst,
+                                                                                sig_inv_test, corelen, window=26, overlap=15)
 
+    # seperating 3 different focal points as channels and using them as 3 independent data
+    # label_test = np.repeat(label_test, 3, axis=0)
+    # name_tst = np.repeat(name_tst, 3, axis=0)
+    # sig_inv_test = np.repeat(sig_inv_test, 3, axis=0)
+    # corelen = [3 * cl for cl in corelen]
+
+    print("cancer labels shape", label_test[label_test[:,1]>label_test[:,0],:].shape)
+    print("data shape", signal_test.shape)
     tst_ds = TensorDataset(torch.tensor(signal_test, dtype=torch.float32),
                            torch.tensor(label_test, dtype=torch.uint8),
                            torch.tensor(name_tst, dtype=torch.uint8),
@@ -829,14 +888,35 @@ def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', m
                            torch.tensor(name_tst, dtype=torch.uint8))
     return tst_ds, corelen, label_inv_out, patient_id_bk, gs_bk, None, true_label
 
+
 def fix_dim(data, dataset_name):
     if '2D' in dataset_name:
-        tmp = np.swapaxes(data, 2, 3)
+        tmp = np.swapaxes(data, 1, 2)
+        # tmp = tmp[:,0:1,:,: ]
+        # tmp = data.reshape((data.shape[0], data.shape[1], -1))
+        # tmp = np.swapaxes(tmp, 1, 2)
+        # tmp = data
         # return np.swapaxes(tmp.reshape((tmp.shape[0], tmp.shape[1], -1)),1,2)
         # return tmp.reshape((tmp.shape[0], tmp.shape[1], -1))
-        return tmp.reshape((tmp.shape[0], 1, tmp.shape[1], -1))
+        # tmp = tmp.reshape((tmp.shape[0] * tmp.shape[1], 1, tmp.shape[2], 1))
+        tmp = tmp.reshape((tmp.shape[0] * tmp.shape[1], 1, tmp.shape[2], tmp.shape[3]))
+        # tmp_list = []
+        # tmp_list.append(tmp[:,:,:,[1,3]])
+        # tmp_list.append(tmp[:,:,:,[0,1]])
+        # tmp = np.concatenate(tmp_list)
+        # return np.repeat(tmp, 2, axis=3)
+        # return tmp.reshape((tmp.shape[0] * tmp.shape[1], 1, tmp.shape[2], tmp.shape[3]))
+        # return tmp.reshape((tmp.shape[0], 1, tmp.shape[1], -1))
+        # return np.swapaxes(tmp, 1, 2)
+        return tmp
+    elif 'patch' in dataset_name:
+        tmp = data[:, np.newaxis, ...]
+        # tmp = np.repeat(tmp, 3, axis=1)
+        return tmp
     else:
-        return data[:, np.newaxis, :]
+        tmp = data[:, np.newaxis, ...]
+        # tmp = np.repeat(tmp, 3, axis=1)
+        return tmp
 
 def manual_balance(data_c, label_c, core_name_c, inv_out):
     no_cancer = (label_c[:,1]==1).sum()
@@ -852,3 +932,30 @@ def manual_balance(data_c, label_c, core_name_c, inv_out):
     core_name_c = core_name_c[ind, ...]
     inv_out = inv_out[ind]
     return data_c, label_c, core_name_c, inv_out
+
+def create_patch(data_c, label_c, core_name_c, inv_c, corelen, window=5, overlap=0):
+    data = []
+    label = []
+    core_name = []
+    inv = []
+    core_cumsum = np.cumsum(corelen)
+    for i in range(len(corelen)):
+        for j in range((corelen[i]-window)//(window-overlap)+1):
+            core_start = core_cumsum[i-1] if i!=0 else 0
+            window_start = j*(window-overlap)
+            window_end = window_start + window
+            for k in range(11):
+                data.append(data_c[np.newaxis, core_start+window_start:core_start+window_end, k*26:(k+1)*26, :])
+                label.append(label_c[np.newaxis, core_start+window_start, ...])
+                core_name.append(core_name_c[np.newaxis, core_start+window_start, ...])
+                if inv_c is not None:
+                    inv.append(inv_c[np.newaxis, core_start+window_start, ...])
+        corelen[i] = (len(data) - np.cumsum(corelen)[i-1]) if i!=0 else len(data) - np.array(0)
+
+    data = np.concatenate(data)
+    data = np.swapaxes(data, 1, 3)
+    label = np.concatenate(label)
+    core_name = np.concatenate(core_name)
+    inv = np.concatenate(inv)
+    # print("data shape", data.shape)
+    return data, label, core_name, inv, corelen
