@@ -12,6 +12,7 @@ try:
 except ImportError:
     from torch.utils.model_zoo import load_url as load_state_dict_from_url
 
+from loss_functions.isomax import IsoMaxLossFirstPart, IsoMaxLossFirstPartV1
 
 __all__ = ['DenseNet', 'densenet121', 'densenet169', 'densenet201', 'densenet161']
 
@@ -179,7 +180,8 @@ class DenseNet(nn.Module):
         self.features.add_module('norm5', nn.BatchNorm2d(num_features))
 
         # Linear layer
-        self.classifier = nn.Linear(num_features, num_classes)
+        # self.classifier = nn.Linear(num_features, num_classes)
+        self.classifier = IsoMaxLossFirstPart(num_features, num_classes)
 
         # Official init from torch repo.
         for m in self.modules():

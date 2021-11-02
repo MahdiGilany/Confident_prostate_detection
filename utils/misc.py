@@ -21,6 +21,7 @@ from tensorboardX import SummaryWriter
 import bz2
 import _pickle as cPickle
 
+import mat73
 from scipy.io import matlab
 
 from datetime import datetime
@@ -345,16 +346,24 @@ def init_weights(net, init_fn):
 
 
 ########################################################################
-def load_matlab(filename):
+def load_matlab(filename, dynmc=False):
     # import h5py
     # with h5py.File(filename, 'rb') as f:
     #     return f.keys()
-    import mat73
-    return mat73.loadmat(filename)
-    # with open(filename, 'rb') as fp:
 
-        # return matlab.loadmat(fp, struct_as_record=False, squeeze_me=True)
-
+    if not dynmc:
+        try:
+            return mat73.loadmat(filename)
+        except:
+            with open(filename, 'rb') as fp:
+                return matlab.loadmat(fp, struct_as_record=False, squeeze_me=True)
+    else:
+        with open(filename, 'rb') as fp:
+            # try:
+                return matlab.loadmat(fp, struct_as_record=False, squeeze_me=True)
+            # except:
+            #     print(filename)
+            #     sys.exit()
 
 def squeeze_Exact(inputdata):
     """Squeeze all data in Exact"""

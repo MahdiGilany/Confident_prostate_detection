@@ -167,6 +167,7 @@ try:
 except ImportError:
     from torch.utils.model_zoo import load_url as load_state_dict_from_url
 
+from loss_functions.isomax import IsoMaxLossFirstPart, IsoMaxLossFirstPartV1
 
 __all__ = ['ResNet', 'resnet18'] #, 'resnet34', 'resnet50', 'resnet101',
            # 'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -347,7 +348,8 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        # self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.fc = IsoMaxLossFirstPart(512 * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -460,5 +462,5 @@ if __name__ == "__main__":
     #         print(net_name)
     #         test(globals()[net_name]())
     #         print()
-    net = resnet18(num_classes=2, in_channels=1)
+    net = resnet10(num_classes=2, in_channels=1)
     summary(net, input_size=[(2, 1, 256, 256)])

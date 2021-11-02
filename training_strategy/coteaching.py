@@ -193,7 +193,7 @@ class CoTeaching(Model):
         """
         [_.train() for _ in self.network_list]
         correct, total = 0, 0
-        semi_supervised = (trn_dl.dataset.n_views > 1) or (trn_dl.dataset.unsup_data is not None)
+        # semi_supervised = (trn_dl.dataset.n_views > 1) or (trn_dl.dataset.unsup_data is not None)
         forget_rate = 0 if self.forget_rate_schedule is None else self.forget_rate_schedule[epoch]
         all_ind = {'benign': [], 'cancer': [], 'cancer_ratio': []}
         unc_list = []
@@ -211,24 +211,25 @@ class CoTeaching(Model):
                 if len(extra_data) == 2:
                     loss_weights, x_unsup = extra_data
                 else:
-                    loss_weights, x_unsup = extra_data[0], None
+                    # loss_weights, x_unsup = extra_data[0], None
+                    loss_weights, x_unsup = None, None
 
                 # Forward & Backward
                 out1, out2, loss1, loss2, extra = self.forward_backward(
                     x_raw, n_batch, y_batch,
-                    loss_weights=loss_weights,
+                    # loss_weights=loss_weights,
                     forget_rate=forget_rate,
                     step=epoch * i,
                     index=index,
                     epoch=epoch,
                     batch_size=trn_dl.batch_size,
-                    semi_supervised=semi_supervised,
-                    n_views=trn_dl.dataset.n_views,
+                    # semi_supervised=semi_supervised,
+                    # n_views=trn_dl.dataset.n_views,
                     x_unsup=x_unsup,
                 )
-                if semi_supervised:  #
-                    idx_sup = extra['idx_sup']
-                    x_raw, n_batch, y_batch = x_raw[idx_sup], n_batch[idx_sup], y_batch[idx_sup]
+                # if semi_supervised:  #
+                #     idx_sup = extra['idx_sup']
+                #     x_raw, n_batch, y_batch = x_raw[idx_sup], n_batch[idx_sup], y_batch[idx_sup]
                 total += y_batch.size(0)
                 correct += (F.softmax(out1, dim=1).argmax(dim=1) == torch.argmax(y_batch, dim=1)).sum().item()
                 self.on_batch_end(t_epoch, loss=loss1.item() + loss2.item(), acc=correct / total,

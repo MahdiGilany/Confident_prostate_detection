@@ -1,28 +1,41 @@
 from utils import *
 from utils.dataloader import create_loader, create_loaders_test
-from utils.dataset import create_datasets_Exact as create_datasets
+from utils.dataset import create_datasets_Exact
+from utils.dataset_dynmc import create_datasets_Exact_dynmc
 from utils.dataset import create_datasets_test_Exact as create_datasets_test
 
 
 def train(opt):
     writer = setup_tensorboard(opt)
 
-    # Datasets / Dataloader
+    if opt.data_source.IDloading_dynmc:
+        create_datasets = create_datasets_Exact_dynmc
+    else:
+        create_datasets = create_datasets_Exact
+
+# Datasets / Dataloader
     trn_ds, train_set, val_set, test_set = create_datasets(
         dataset_name=opt.data_source.dataset,
         data_file='/'.join([opt.data_source.data_root, opt.data_source.train_set]),
         unlabelled_data_file='/'.join([opt.data_source.data_root, opt.data_source.unlabelled_set]),
         norm=opt.normalize_input, aug_type=opt.aug_type, min_inv=opt.min_inv, n_views=opt.train.n_views,
-        unsup_aug_type=opt.unsup_aug_type,
+        unsup_aug_type=opt.unsup_aug_type, dynmc_dataroot=opt.data_source.dynmc_dataroot
     )
-    trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True)
-    # val_ds = val_set[0]
-    # tst_ds = test_set[0]
-    # val_dl = create_loaders_test(val_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
-    # tst_dl = create_loaders_test(tst_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
 
+    opt.num_samples = {'train': len(train_set[0]), 'val': len(val_set[0]), 'test': len(test_set[0])}
 
-    opt.num_samples = {'train': len(trn_ds), 'val': len(val_set[0]), 'test': len(test_set[0])}
+    trn_ds = train_set[0]
+    val_ds = val_set[0]
+    tst_ds = test_set[0]
+
+    trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True, pin_memory=True)
+    trn_dl2 = create_loaders_test(trn_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
+    val_dl = create_loaders_test(val_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
+    tst_dl = create_loaders_test(tst_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
+
+    train_set = [trn_dl2 if i == 0 else data for i, data in enumerate(train_set)]
+    val_set = [val_dl if i == 0 else data for i, data in enumerate(val_set)]
+    test_set = [tst_dl if i == 0 else data for i, data in enumerate(test_set)]
 
     # Setup models and training strategy
     # ToDo: Multiple GPUS
@@ -59,8 +72,8 @@ def train(opt):
             evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer)
 
         # Shuffle indices of unlabelled dataset
-        if trn_ds.unsup_data is not None:
-            np.random.shuffle(trn_ds.unsup_index)
+        # if trn_ds.unsup_data is not None:
+        #     np.random.shuffle(trn_ds.unsup_index)
 
     model.save(opt.paths.checkpoint_dir, 'final')
     print('Done training!')
@@ -101,11 +114,13 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
         datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = create_datasets_test(
             '/'.join([opt.data_source.data_root, opt.data_source.test_set]), dataset_name=opt.data_source.dataset,
             min_inv=0.4, state=state, norm=opt.normalize_input)
+        tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
     else:  # For periodically testing
-        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = dataset_test
+        # datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = dataset_test
+        tst_dl, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = dataset_test
 
     # Create dataloader to test data
-    tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
+    # tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
 
     # Evaluation
     predictions, ood_scores, acc_s, acc_sb = model.eval(tst_dl, net_index=1)

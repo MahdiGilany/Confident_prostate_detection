@@ -679,8 +679,8 @@ def _preprocess(x_train):
 ######################################################################################
 ######################################################################################
 def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
-                          unlabelled_data_file=None, unsup_aug_type=None,
-                          to_norm=False, signal_split=False, use_inv=True, use_patch=False):
+                          unlabelled_data_file=None, unsup_aug_type=None, to_norm=False,
+                          signal_split=False, use_inv=True, use_patch=False, dynmc_dataroot=None):
     """
     Create training, validation and test sets
     :param data_file:
@@ -699,11 +699,10 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     print("loading done")
 
     input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split)
-    data_train = input_data["data_train"]
-    inv_train = input_data["inv_train"]
-    # label_train = (inv_train > 0).astype('uint8')
-    label_train = input_data['label_train'].astype('uint8')
-    core_name_train = input_data["corename_train"].astype(np.float)
+    # data_train = input_data["data_train"]
+    # inv_train = input_data["inv_train"]
+    # label_train = input_data['label_train'].astype('uint8')
+    # core_name_train = input_data["corename_train"].astype(np.float)
 
     # inv_train = input_data["inv_train"]
     # label_train = (inv_train > 0).astype('uint8')
@@ -713,21 +712,21 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     # inv_train = np.concatenate([inv_train, input_data["inv_val"]], axis=0)
     # CoreN_train = np.concatenate([CoreN_train, input_data["corename_val"].astype(np.float)])
 
-    included_idx = [True for _ in label_train]
-    included_idx = [False if (inv < min_inv) and (inv > 0) else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
-    signal_train, label_train, name_train, inv_train = concat_data_Exact(included_idx, data_train, label_train,
-                                                                         core_name_train, inv_train,
-                                                                         dataset_name=dataset_name,
-                                                                         signal_split=signal_split, use_inv=use_inv,
-                                                                         use_patch=use_patch)
+    # included_idx = [True for _ in label_train]
+    # included_idx = [False if (inv < min_inv) and (inv > 0) else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
+    # signal_train, label_train, name_train, inv_train = concat_data_Exact(included_idx, data_train, label_train,
+    #                                                                      core_name_train, inv_train,
+    #                                                                      dataset_name=dataset_name,
+    #                                                                      signal_split=signal_split, use_inv=use_inv,
+    #                                                                      use_patch=use_patch)
 
     # unsup_data = np.concatenate(data_train)
-    unsup_data = None
+    # unsup_data = None
     # unsup_data = load_unlabelled_datasets(unlabelled_data_file) if 'none' not in unlabelled_data_file else None
-    trn_ds = DatasetV1(signal_train, label_train, name_train, inv_train, transform_prob=.2,
-                       unsup_data=unsup_data, aug_type=aug_type, n_views=n_views,
-                       unsup_aug_type=unsup_aug_type, unsup_transform_prob=.8,
-                       )  # ['magnitude_warp', 'time_warp'])
+    # trn_ds = DatasetV1(signal_train, label_train, name_train, inv_train, transform_prob=.2,
+    #                    unsup_data=unsup_data, aug_type=aug_type, n_views=n_views,
+    #                    unsup_aug_type=unsup_aug_type, unsup_transform_prob=.8,
+    #                    )  # ['magnitude_warp', 'time_warp'])
 
     train_stats = None
     train_set = create_datasets_test_Exact(None, min_inv=min_inv, state='train', norm=norm, input_data=input_data,
@@ -740,7 +739,8 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
                                           train_stats=train_stats, dataset_name=dataset_name,
                                           signal_split=signal_split, use_inv=use_inv, use_patch=use_patch)
 
-    return trn_ds, train_set, val_set, test_set
+    # return trn_ds, train_set, val_set, test_set
+    return None, train_set, val_set, test_set
 
 
 def concat_data_Exact(included_idx, data, label=None, core_name=None, inv=None,
