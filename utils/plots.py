@@ -220,6 +220,7 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
         ax2.set(title=f'Correlation Coefficient = {scores["corr"]:.3f} | MAE = {scores["mae"]:.3f}',
                 xlabel='True Involvement', ylabel='Predicted Involvement'
                 )
+    # plt.savefig('point_cloud3.png')
     if writer:
         # img = plot_to_image(fig4)
         writer.add_figure(f'{set_name}/core_acc', fig1, global_step=current_epoch)

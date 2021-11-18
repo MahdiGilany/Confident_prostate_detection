@@ -20,6 +20,7 @@ def infer_core_wise(predictions, core_len, roi_coors, ood_scores=None):
         temp = predictions[counter:(counter + core_len[i])]
         core_res1.append(temp)
         core_l1.append(np.greater(temp[:, 1], temp[:, 0]).sum() / core_len[i])
+        # core_l1.append(temp[:, 1].sum() / core_len[i])
         temp = temp[:, 1]
         th = 0.5
         # core_feat1.append([temp[temp > th].mean(), len(temp[temp > th]), temp[temp < th].mean(), len(temp[temp < th])])

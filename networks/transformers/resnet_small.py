@@ -83,7 +83,7 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-    def forward(self, x, layer=7):
+    def forward(self, x, *args, layer=7):
         if layer <= 0: 
             return x
         out = F.relu(self.bn1(self.conv1(x)))
@@ -111,6 +111,14 @@ class ResNet(nn.Module):
 
 def ResNet18(num_classes, num_channels=3, input_size=32):
     return ResNet(BasicBlock, [1,1,1,1], num_classes, num_channels=num_channels,
+                  input_size=input_size)
+
+def resnet10Small(num_classes, in_channels=3, input_size=32, pretrained=False):
+    return ResNet(BasicBlock, [1,1,1,1], num_classes, num_channels=in_channels,
+                  input_size=input_size)
+
+def resnet18Small(num_classes, in_channels=3, input_size=32, pretrained=False):
+    return ResNet(BasicBlock, [2,2,2,2], num_classes, num_channels=in_channels,
                   input_size=input_size)
 
 

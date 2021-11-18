@@ -42,9 +42,9 @@ def get_model(opt, network, device, mode, classifier=None):
             model = cot(network, device, opt.tasks_num_class[0], mode='test', classifier=classifier,
                         opt=opt, epochs=opt.n_epochs,  # optional
                         )
-        if torch.cuda.device_count() > 1:
-            model.net1 = nn.DataParallel(model.net1).to(device)
-            model.net2 = nn.DataParallel(model.net2).to(device)
+        # if torch.cuda.device_count() > 1:
+        #     model.net1 = nn.DataParallel(model.net1).to(device)
+        #     model.net2 = nn.DataParallel(model.net2).to(device)
         return model
     elif opt.model_name.lower() in ['vanilla', 'sam']:
         _model = Model if opt.model_name.lower() == 'vanilla' else ModelSam

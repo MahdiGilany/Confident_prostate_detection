@@ -113,7 +113,8 @@ def get_network(backbone, device, in_channels, nb_class, num_positions=12,
                      num_pred_classes=nb_class, num_positions=num_positions)
     elif backbone == 'resnet':
         # _net = resnet20 if not variational else resnet20_variational
-        _net = resnet18
+        _net = resnet10
+        # _net = resnet10Small
         net = _net(pretrained=False, num_classes=nb_class, in_channels=in_channels)
     elif backbone == 'densenet':
         # _net = resnet20 if not variational else resnet20_variational

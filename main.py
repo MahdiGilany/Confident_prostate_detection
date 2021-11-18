@@ -110,6 +110,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
 
     # Load test set
     if dataset_test is None:  # For standalone evaluation
+        print('loading dataset...')
         # train_stat is missing currently, the evaluation perhaps will be wrong
         datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = create_datasets_test(
             '/'.join([opt.data_source.data_root, opt.data_source.test_set]), dataset_name=opt.data_source.dataset,

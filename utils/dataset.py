@@ -676,8 +676,7 @@ def _preprocess(x_train):
     return x_train, (x_train_min, x_train_max)
 
 
-######################################################################################
-######################################################################################
+########################################################################################################################
 def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
                           unlabelled_data_file=None, unsup_aug_type=None, to_norm=False,
                           signal_split=False, use_inv=True, use_patch=False, dynmc_dataroot=None):
@@ -795,7 +794,7 @@ def concat_data_Exact(included_idx, data, label=None, core_name=None, inv=None,
 
 def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', min_inv=0.4, augno=0,
                                input_data=None, inv_state='normal', return_array=False, train_stats=None,
-                               signal_split=False, use_inv=True, use_patch=False):
+                               signal_split=False, use_inv=True, use_patch=False, split_patches=False):
     if input_data is None:
         input_data = load_matlab(data_file)
 
@@ -871,11 +870,13 @@ def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', m
         signal_test, label_test, name_tst, sig_inv_test, corelen = create_patch(signal_test, label_test, name_tst,
                                                                                 sig_inv_test, corelen, window=26, overlap=15)
 
-    # seperating 3 different focal points as channels and using them as 3 independent data
-    # label_test = np.repeat(label_test, 3, axis=0)
-    # name_tst = np.repeat(name_tst, 3, axis=0)
-    # sig_inv_test = np.repeat(sig_inv_test, 3, axis=0)
-    # corelen = [3 * cl for cl in corelen]
+    # # manually balance the number of cancers and benigns
+    # data_c, label_c, core_name_c, inv_out = manual_balance(signal_test, label_test, name_tst, sig_inv_test)
+
+    # spliting the patches to 32x32 instead of 256x256
+    if split_patches:
+        signal_test, label_test, name_tst, sig_inv_test, corelen = split_patch(signal_test, label_test, name_tst,
+                                                                               sig_inv_test, corelen)
 
     print("cancer labels shape", label_test[label_test[:,1]>label_test[:,0],:].shape)
     print("data shape", signal_test.shape)
@@ -918,6 +919,7 @@ def fix_dim(data, dataset_name):
         # tmp = np.repeat(tmp, 3, axis=1)
         return tmp
 
+
 def manual_balance(data_c, label_c, core_name_c, inv_out):
     no_cancer = (label_c[:,1]==1).sum()
     cancer_ind = np.where(label_c[:, 1] == 1)
@@ -925,13 +927,14 @@ def manual_balance(data_c, label_c, core_name_c, inv_out):
 
     benign_ind = sk.shuffle(benign_ind[0], random_state=0)
     benign_ind = benign_ind[:no_cancer]
-    ind = np.concatenate((benign_ind,cancer_ind[0])).astype(int)
+    ind = np.concatenate((benign_ind, cancer_ind[0])).astype(int)
 
     data_c = data_c[ind, ...]
     label_c = label_c[ind, ...]
     core_name_c = core_name_c[ind, ...]
     inv_out = inv_out[ind]
     return data_c, label_c, core_name_c, inv_out
+
 
 def create_patch(data_c, label_c, core_name_c, inv_c, corelen, window=5, overlap=0):
     data = []
@@ -959,3 +962,17 @@ def create_patch(data_c, label_c, core_name_c, inv_c, corelen, window=5, overlap
     inv = np.concatenate(inv)
     # print("data shape", data.shape)
     return data, label, core_name, inv, corelen
+
+
+def split_patch(signal_test, label_test, name_tst, sig_inv_test, corelen, patch_size=256):
+    from einops import rearrange
+
+    no_patches = (256 // patch_size) ** 2
+
+    signal = rearrange(signal_test, 'b c (h p1) (w p2) -> (b h w) c p1 p2', p1=patch_size, p2=patch_size)
+    label = np.repeat(label_test, no_patches, axis=0)
+    name = np.repeat(name_tst, no_patches, axis=0)
+    sig_inv = np.repeat(sig_inv_test, no_patches, axis=0)
+    corelen_ = [no_patches * cl for cl in corelen]
+
+    return signal, label, name, sig_inv, corelen_
