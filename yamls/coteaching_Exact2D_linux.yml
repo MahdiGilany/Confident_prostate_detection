@@ -29,6 +29,7 @@ data_source:
 # Tunable (iteratively) hyper-parameters
 seed: 0
 n_epochs: 30
+epoch_start_correct: 10
 total_iters: 20000
 #backbone: [ Inception, Inception ]  # SimConv4 Inception resnet_ucr
 backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
@@ -38,9 +39,9 @@ backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
 #backbone: [ Classifier3L_2D, Classifier3L_2D ]  # SimConv4 Inception resnet_ucr Classifier3L
 exp_name: coteaching_semi
 exp_suffix: ''
-test_batch_size: 64
-train_batch_size:  64
-lr: 1e-5
+test_batch_size: 32
+train_batch_size:  32
+lr: 1e-4
 normalize_input: none
 temperature: .5
 #aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
@@ -96,3 +97,6 @@ abstention:
 elr_alpha: 0
 elr_beta: .7
 
+correcting:
+  inv_dif_thr: .15
+  prob_thr: .85

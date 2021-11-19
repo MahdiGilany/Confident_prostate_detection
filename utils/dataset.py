@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import sklearn.utils as sk
 import torch.multiprocessing
+import torch.nn.functional as F
 from torch.utils.data import TensorDataset
 from self_time.optim.pretrain import get_transform
 
@@ -63,6 +64,218 @@ def create_datasets_cores(ftrs_train, inv_train, corelen_train, ftrs_val, inv_va
 
 
 class DatasetV1(torch.utils.data.Dataset):
+    """Characterizes a dataset for PyTorch"""
+
+    def __init__(self, data, label, location, inv, core_id, patient_id, frame_id, core_len, roi_coors, stn,
+                 aug_type: Union[list, str] = ('G2',), initial_min_inv=.7, n_neighbor=0,
+                 n_views=1, transform_prob=.2, degree=1, aug_lib='self_time', n_duplicates=1,
+                 stn_alpha=1e-2):
+        """"""
+        self.data_dict = {
+            'data': data,
+            'label': label,
+            'location': location,
+            'inv': inv,
+            'core_id': core_id,
+            'patient_id': patient_id,
+            'frame_id': frame_id,
+            # 'roi_coors': roi_coors,
+            # 'stn': stn,  # stationery
+        }
+        self.data, self.label, self.location, self.inv, self.core_id, self.patient_id, self.inv_pred, \
+        self.frame_id, self.roi_coors, self.stn, = [None, ] * 10
+        self.stn_alpha = stn_alpha
+        self.label_corrected = False
+        self.last_updated_label = None
+        self.transformer = None
+        self.core_len = core_len
+        self.n_views, self.aug_type, self.aug_lib, self.n_duplicates = n_views, aug_type, aug_lib, n_duplicates
+        self.initial_min_inv = initial_min_inv
+        self.n_neighbor = n_neighbor
+        self.make_dataset()
+        self.index = np.arange(len(self.data))
+
+        # if aug_lib == 'self_time':
+        #     self.transform, self.to_tensor_transform = get_transform(
+        #         aug_type if isinstance(aug_type, list) else [aug_type, ],
+        #         prob=transform_prob, degree=degree,
+        #     )
+        # elif aug_lib == 'tsaug':
+        #     self.transform = (
+        #             TimeWarp(max_speed_ratio=(2, 3), prob=transform_prob, seed=0) * n_duplicates
+        #             + Quantize(n_levels=(10, 60), prob=transform_prob, seed=0)
+        #             + Drift(max_drift=(0.01, 0.4), seed=0) @ transform_prob
+        #             + Convolve(window=['flattop', 'hann', 'triang'], size=(3, 11), prob=transform_prob, seed=0)
+        #             + AddNoise(0, (0.01, 0.05), prob=transform_prob, seed=0)
+        #         #+ Reverse() @ transform_prob  # with 50% probability, reverse the sequence
+            # )
+
+    def __getitem__(self, index):
+        x, y, z, loss_weight = self.getitem_by_index(index)
+        index = np.array(index)
+        # if self.aug_lib == 'tsaug':
+        #     x = self.transform.augment(x)
+        #     if self.n_duplicates > 1:
+        #         rp = lambda _: np.repeat(_, self.n_duplicates, axis=0)
+        #         y, z, loss_weight = rp(y), rp(z), rp(loss_weight)
+        #     return x, y, z, index, loss_weight
+
+        if self.aug_type == 'none':
+            return x, y, z, index, loss_weight
+
+        img_list, label_list, loc_list, idx_list, loss_weight_list = [], [], [], [], []
+
+        x = x.T if x.ndim > 1 else x[..., np.newaxis]
+        for _ in range(self.n_views):
+            img_transformed = self.transform(x).T
+            img_list.append(self.to_tensor_transform(img_transformed))
+            loc_list.append(z)
+            label_list.append(y)
+            idx_list.append(index)
+            loss_weight_list.append(loss_weight)
+        return img_list, label_list, loc_list, idx_list, loss_weight_list
+
+    @property
+    def inv_pred(self):
+        return self._inv_pred
+
+    @inv_pred.setter
+    def inv_pred(self, inv_pred):
+        if inv_pred is not None:
+            self._inv_pred = inv_pred
+        else:
+            self._inv_pred = None
+
+    def get_neighbors(self, index):
+        core_loc = self.core_id == self.core_id[index]
+        dist = np.abs(self.roi_coors[core_loc] - self.roi_coors[index]).sum(axis=1)
+        min_dist_loc = np.argsort(dist)[:self.n_neighbor]
+        neighbor_index = self.index[core_loc][min_dist_loc]
+        return np.append(index, neighbor_index)
+
+    def getitem_by_index(self, index):
+        x = self.data[index] if self.n_neighbor == 0 else self.data[self.get_neighbors(index)]
+        x = x.astype('float32')
+        y = self.label[index]
+        z = self.location[index]
+        # if self.inv_pred is not None:
+        #     if isinstance(index, int):
+        #         inv_pred = self.inv_pred[self.frame_id[index]]
+        #     else:
+        #         inv_pred = torch.tensor([self.inv_pred[_] for _ in self.frame_id[index]])
+        #     loss_weight = 1 + torch.abs(inv_pred - self.inv[index])
+        # else:
+        #     loss_weight = np.repeat(1, x.shape[0]).astype('float32') if not isinstance(index, int) else 1
+        loss_weight = np.repeat(1, x.shape[0]).astype('float32') if not isinstance(index, int) else 1
+        return x, y, z, loss_weight
+
+    def _filter(self, key, condition):
+        return self.data_dict[key][condition]
+
+    def make_dataset(self, condition=None):
+        if condition is None:
+            condition = (self.data_dict['inv'] >= self.initial_min_inv) + (self.data_dict['inv'] == 0.)
+            # condition *= (self.data_dict['stn'] < self.stn_alpha)
+
+            # Range outlier
+            # clf = IsolationForest(n_estimators=100, warm_start=True)
+            # X = np.vstack((self.data_dict['data'].max(1),
+            #                self.data_dict['data'].min(1),
+            #                self.data_dict['data'].max(1) - self.data_dict['data'].min(1))).T
+            # condition *= clf.fit_predict(X).astype(condition.dtype)
+
+        for k in self.data_dict.keys():
+            setattr(self, k, self._filter(k, condition))
+
+        # self.data = torch.tensor(self.data, dtype=torch.float32) if self.aug_type == 'none' else self.data
+        self.label = torch.tensor(self.label, dtype=torch.long)
+        self.inv = torch.tensor(self.inv, dtype=torch.float32)
+        self.location = torch.tensor(self.location, dtype=torch.uint8)
+        # if self.transformer is not None:
+        #     self.data, _ = robust_norm(self.data, self.transformer)
+
+    def correct_labels(self, frame_id, core_len, predictions, true_involvement, predicted_involvement, correcting_params):
+        """
+        Correcting labels if the true and predicted involvements are similar
+        :param frame_id: same as 'frame_id' item, except grouped by core
+        :param core_len:
+        :param predictions:
+        :param predicted_involvement:
+        :param true_involvement: same as 'true_involvement' item, except grouped by core
+        :param correcting_params:
+        :return:
+        """
+        inv_dif_thr, prob_thr = correcting_params.inv_dif_thr, correcting_params.prob_thr
+        for _, cl in zip(frame_id, core_len):
+            assert len(_) == cl
+        inv_dif = np.abs(np.subtract(predicted_involvement, true_involvement))
+        inv_dif[np.array(true_involvement) == 0] = 1  # no correction for benign labels
+        correcting_mask = np.array(inv_dif <= inv_dif_thr)
+        correcting_mask = np.concatenate([np.repeat(_, cl) for (_, cl) in zip(correcting_mask, core_len)])
+        print(correcting_mask.sum(), predictions.max(), predictions[correcting_mask].max())
+        correcting_mask[predictions.max(1) < prob_thr] = False
+        n_correct = correcting_mask.sum()
+
+        if n_correct > 0:
+            # add new time-series if available
+            ts_id_corrected = np.concatenate(frame_id)[correcting_mask]
+            ts_id_updated = np.unique(np.concatenate([self.frame_id, ts_id_corrected]))
+            if not np.all(np.isin(ts_id_updated, np.sort(self.frame_id))):
+                condition = np.isin(self.data_dict['frame_id'], ts_id_updated)
+                # condition *= (self.data_dict['stn'] < self.stn_alpha)
+
+                print(f'{np.sum(condition) - len(self.frame_id)} new frames added')
+                self.make_dataset(condition)
+            else:
+                condition = np.isin(self.data_dict['frame_id'], self.frame_id)  # use the current time-series IDs
+            # Assign new labels
+            if self.last_updated_label is None:
+                new_label = torch.tensor(self.data_dict['label'].argmax(1).copy()).long()
+            else:
+                new_label = self.last_updated_label.clone()
+            new_label[correcting_mask] = torch.tensor(predictions.argmax(1)[correcting_mask]).long()
+
+            print(f'Cls_ratio: Old = {self.label.argmax(1).sum() / len(self.label):.3f}, '
+                  f'New = {new_label[condition].sum() / condition.sum():.3f}')
+
+            self.label = F.one_hot(new_label[condition])
+            self.last_updated_label = new_label.clone()
+            self.label_corrected = True
+            print(f'Correcting amount: {100 * n_correct / len(correcting_mask):.1f}%')
+            print(np.unique(self.data_dict['inv'][correcting_mask]))
+        else:
+            self.label_corrected = False
+
+    def __len__(self):
+        return self.label.size(0)
+
+    @staticmethod
+    def estimate_inv(label, core_len):
+        new_inv = []
+        if isinstance(label, torch.Tensor):
+            label = label.numpy()
+        if np.ndim(label) == 2:
+            label = label.argmax(1)
+        cur_idx = 0
+        for cl in core_len:
+            new_inv.append(np.round(label[cur_idx: cur_idx + cl].sum() / cl, 2))
+            cur_idx += cl
+        return np.array(new_inv).T
+
+    def __updateitem__(self, newones):
+        'update labels'
+        # Select sample
+        # to_categorical(newones)
+        newones.shape
+        self.label = torch.tensor(newones, dtype=torch.uint8)
+
+    def __updateinv__(self, newones):
+        'update labels'
+        # Select sample
+        self.siginv = torch.tensor(newones, dtype=torch.uint8)
+
+
+class DatasetV1_OLD(torch.utils.data.Dataset):
     """Characterizes a dataset for PyTorch"""
 
     def __init__(self, data, label, location, inv=None, unsup_data=None,
@@ -394,24 +607,43 @@ def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal
     return input_data
 
 
-def concat_data(included_idx, data, label=None, core_name=None, inv=None):
+def concat_data(included_idx, data, label, core_name, inv, patient_id, roi_coors, stn):
     """ Concatenate data from different cores specified by 'included_idx' """
     core_counter = 0
-    data_c, label_c, core_name_c, inv_c, core_len = [], [], [], [], []
+    data_c, label_c, core_name_c, inv_c, core_len, core_id_c, patient_id_c, frame_id_c, roi_coors_c, stn_c = \
+        [[] for _ in range(10)]
+    core_len_all = []
+
     for i in range(len(data)):
+        # these three lines are to determine frame_id for each frame in the whole dataset
+        core_len_all.append(data[i].shape[0])
+        start = sum(core_len_all[:-1])
+        end = sum(core_len_all)
+
         if included_idx[i]:
             data_c.append(data[i])
             label_c.append(np.repeat(label[i], data[i].shape[0]))
             temp = np.tile(core_name[i], data[i].shape[0])
-            core_name_c.append(temp.reshape((data[i].shape[0], 8)))
+            core_name_c.append(temp.reshape((data[i].shape[0], -1)))
             inv_c.append(np.repeat(inv[i], data[i].shape[0]))
-            core_len.append(np.repeat(core_counter, data[i].shape[0]))
+            core_id_c.append(np.repeat(i+1, data[i].shape[0]))
+            patient_id_c.append(np.repeat(patient_id[i], data[i].shape[0]))
+            core_len.append(data[i].shape[0])
+            frame_id_c.append(list(range(start+1, end+1)))
+            # roi_coors_c.append(roi_coors[i])
+            # stn_c.append(stn[i])
             core_counter += 1
+    # roi_coors_c = np.concatenate(roi_coors_c)
     data_c = np.concatenate(data_c).astype('float32')
+    data_c = fix_dim(data_c, 'patch')
     label_c = to_categorical(np.concatenate(label_c))
-    core_name_c = np.concatenate(core_name_c)
+    core_name_c = to_categorical(np.concatenate(core_name_c))
     inv_c = np.concatenate(inv_c)
-    return data_c, label_c, core_name_c, inv_c
+    core_id_c = np.concatenate(core_id_c)
+    patient_id_c = np.concatenate(patient_id_c)
+    frame_id_c = np.concatenate(frame_id_c)
+    # stn_c = np.concatenate(stn_c)
+    return data_c, label_c, core_name_c, inv_c, core_id_c, patient_id_c, frame_id_c, core_len, None, None #roi_coors_c, stn_c
 
 
 def create_datasets_v1(data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
@@ -698,37 +930,11 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     print("loading done")
 
     input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split)
-    # data_train = input_data["data_train"]
-    # inv_train = input_data["inv_train"]
-    # label_train = input_data['label_train'].astype('uint8')
-    # core_name_train = input_data["corename_train"].astype(np.float)
 
-    # inv_train = input_data["inv_train"]
-    # label_train = (inv_train > 0).astype('uint8')
-
-    # data_train = data_train + input_data["data_val"]
-    # label_train = np.concatenate([label_train, input_data["label_val"]], axis=0)
-    # inv_train = np.concatenate([inv_train, input_data["inv_val"]], axis=0)
-    # CoreN_train = np.concatenate([CoreN_train, input_data["corename_val"].astype(np.float)])
-
-    # included_idx = [True for _ in label_train]
-    # included_idx = [False if (inv < min_inv) and (inv > 0) else tr_idx for inv, tr_idx in zip(inv_train, included_idx)]
-    # signal_train, label_train, name_train, inv_train = concat_data_Exact(included_idx, data_train, label_train,
-    #                                                                      core_name_train, inv_train,
-    #                                                                      dataset_name=dataset_name,
-    #                                                                      signal_split=signal_split, use_inv=use_inv,
-    #                                                                      use_patch=use_patch)
-
-    # unsup_data = np.concatenate(data_train)
-    # unsup_data = None
-    # unsup_data = load_unlabelled_datasets(unlabelled_data_file) if 'none' not in unlabelled_data_file else None
-    # trn_ds = DatasetV1(signal_train, label_train, name_train, inv_train, transform_prob=.2,
-    #                    unsup_data=unsup_data, aug_type=aug_type, n_views=n_views,
-    #                    unsup_aug_type=unsup_aug_type, unsup_transform_prob=.8,
-    #                    )  # ['magnitude_warp', 'time_warp'])
+    trn_ds = DatasetV1(*extract_subset(input_data, 'train', 0.4), initial_min_inv=min_inv, aug_type=aug_type)
 
     train_stats = None
-    train_set = create_datasets_test_Exact(None, min_inv=min_inv, state='train', norm=norm, input_data=input_data,
+    train_set = create_datasets_test_Exact(None, min_inv=0.4, state='train', norm=norm, input_data=input_data,
                                            train_stats=train_stats, dataset_name=dataset_name,
                                            signal_split=signal_split, use_inv=use_inv, use_patch=use_patch)
     val_set = create_datasets_test_Exact(None, min_inv=0.4, state='val', norm=norm, input_data=input_data,
@@ -739,7 +945,7 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
                                           signal_split=signal_split, use_inv=use_inv, use_patch=use_patch)
 
     # return trn_ds, train_set, val_set, test_set
-    return None, train_set, val_set, test_set
+    return trn_ds, train_set, val_set, test_set
 
 
 def concat_data_Exact(included_idx, data, label=None, core_name=None, inv=None,
@@ -809,14 +1015,22 @@ def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', m
 
     included_idx = [False if ((inv < min_inv) and (inv > 0)) else True for inv in label_inv]
 
-    corelen = []
+    corelen, core_len_all = [], []
     target_test = []
     name_tst = []
+    frame_id = []
+    frame_id_c = []
 
     # Working with BK dataset
     bags_test = []
     sig_inv_test = []
     for i in range(len(data_test)):
+        # these three lines are to determine frame_id for each frame in the whole dataset
+        core_len_all.append(data_test[i].shape[0])
+        start = sum(core_len_all[:-1])
+        end = sum(core_len_all)
+        frame_id.append(list(range(start + 1, end + 1)))
+
         if included_idx[i] or (not use_inv):
             bags_test.append(data_test[i])
             corelen.append(data_test[i].shape[0])
@@ -824,6 +1038,7 @@ def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', m
                 target_test.append(np.repeat(label_test[i], data_test[i].shape[0]))
                 temp = np.tile(CoreN_test[i], data_test[i].shape[0])
                 name_tst.append(temp.reshape((data_test[i].shape[0], 1)))
+                frame_id_c.append(frame_id[i])
             if label_inv[i] == 0:
                 sig_inv_test.append(np.repeat(label_inv[i], data_test[i].shape[0]))
             elif inv_state == 'uniform':
@@ -875,6 +1090,7 @@ def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', m
 
     # spliting the patches to 32x32 instead of 256x256
     if split_patches:
+        raise NotImplemented ## for using along label refinement the function below should include frame_id_c
         signal_test, label_test, name_tst, sig_inv_test, corelen = split_patch(signal_test, label_test, name_tst,
                                                                                sig_inv_test, corelen)
 
@@ -887,7 +1103,7 @@ def create_datasets_test_Exact(data_file, state, dataset_name, norm='Min_Max', m
              TensorDataset(torch.tensor(signal_test, dtype=torch.float32),
                            torch.tensor(label_test, dtype=torch.uint8),
                            torch.tensor(name_tst, dtype=torch.uint8))
-    return tst_ds, corelen, label_inv_out, patient_id_bk, gs_bk, None, true_label
+    return tst_ds, corelen, label_inv_out, patient_id_bk, gs_bk, None, true_label, frame_id_c
 
 
 def fix_dim(data, dataset_name):
@@ -976,3 +1192,41 @@ def split_patch(signal_test, label_test, name_tst, sig_inv_test, corelen, patch_
     corelen_ = [no_patches * cl for cl in corelen]
 
     return signal, label, name, sig_inv, corelen_
+
+
+def extract_subset(input_data, set_name, min_included_inv=.4, to_concat=True, core_list=None):
+    """
+    Extract subset 'set_name' from input_data using 'min_inv'
+    :param input_data: loaded from pkl or matlab file
+    :param set_name: 'train', 'val', or 'test'
+    :param min_included_inv: minimum involvement for keeping data in the training set
+    :param to_concat: concat selected data
+    :param core_list: ID of included cores
+    :return:
+    """
+    data = input_data["data_" + set_name]
+    inv = input_data["inv_" + set_name]
+    label = input_data['label_' + set_name].astype('uint8')
+    core_name = input_data["corename_" + set_name]
+    patient_id = input_data["PatientId_" + set_name]
+
+    # roi_coors = [np.array(_).T for _ in input_data[add_suf('roi_coors')]]
+    # stn = deepcopy(frame_id)  # input_data[add_suf('stn')]
+    # stn = deepcopy(frame_id)  # input_data[add_suf('stn')]
+    included_idx = [True for _ in label]
+    included_idx = [False if (inv < min_included_inv) and (inv > 0) else tr_idx for inv, tr_idx in
+                    zip(inv, included_idx)]
+    if core_list is not None:  # filter by core-id
+        # included_idx = np.bitwise_and(included_idx, np.isin(core_id, core_list))
+        raise NotImplemented
+    if to_concat:
+        return concat_data(included_idx, data, label, core_name, inv, patient_id, None, None)
+    else:
+        raise NotImplemented
+        # core_len = [len(_) for _ in data]
+        # included_idx = np.argwhere(included_idx).T[0]
+        # get_included = lambda x: [x[i] for i in included_idx]
+        # for v in ['data', 'label', 'core_name', 'inv', 'core_id', 'patient_id', 'frame_id', 'core_len',
+        #           'roi_coors', 'stn']:
+        #     eval(f'{v} = get_included({v})')
+        # return data, label, core_name, inv, core_id, patient_id, frame_id, core_len, roi_coors, stn

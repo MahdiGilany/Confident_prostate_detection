@@ -1,6 +1,6 @@
 import matplotlib
 
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 import seaborn as sns
 import matplotlib.pyplot as plt
 
@@ -100,10 +100,11 @@ def plot_confusion_matrix(y_true, y_pred, classes,
     return ax
 
 
-def net_interpretation(predicted_label, patient_id, involvement, gleason_score, result_dir=None,
+def net_interpretation(predicted_label, predicted_label2, patient_id, involvement, gleason_score, result_dir=None,
                        ood=None,
                        cct=(0.2, 0.6, 1), cbt=(0, 1, 0.6), cf=(1, 0.2, 0.6),
-                       current_epoch=None, set_name='Test', writer=None, scores: dict = None, threshold=0.5):
+                       current_epoch=None, set_name='Test', writer=None, scores: dict = None, threshold=0.5,
+                       plotting=False):
     """
 
     :param predicted_label:
@@ -119,6 +120,7 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     :param writer:
     :param scores:
     :param ood:
+    :param plotting:
     :return:
     """
 
@@ -193,6 +195,9 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     plt.xticks(np.arange(len(patients)), patients)
     plt.xlabel('Patient No.')
 
+    if plotting:
+        plt.show()
+
     width = np.array([p.get_width() for p in ax1.patches][0]).squeeze()
     joblblpos = inv / 2 + barbase
     for k1 in range(inv.shape[0]):
@@ -221,10 +226,28 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
                 xlabel='True Involvement', ylabel='Predicted Involvement'
                 )
     # plt.savefig('point_cloud3.png')
+    if plotting:
+        plt.show()
+
+    # new plot based on new way of finding core predictions
+    fig3 = plt.figure(3)
+    ax3 = sns.scatterplot(x=involvement, y=predicted_label2, size=ood_normalized, legend=False)
+    diag = np.arange(0, 1, .05)
+    sns.lineplot(x=diag, y=diag, color='r', ax=ax3)
+    ax3.axvspan(-.1, 0.1, -.1, .5, alpha=.2, facecolor='lightgreen')
+    ax3.axvspan(-.1, 0.1, .51, 1., alpha=.2, facecolor='red')
+    ax3.axvspan(0.11, 1.1, -.1, .5, alpha=.2, facecolor='grey')
+    ax3.axvspan(0.11, 1.1, .51, 1., alpha=.2, facecolor='moccasin')
+    ax3.axvline(x=.105, linewidth=.6, linestyle='--', color='black')
+    ax3.axhline(y=.505, linewidth=.6, linestyle='--', color='black')
+    ax3.axis('square')
+    ax3.set(ylim=[-.1, 1.1], xlim=[-.1, 1.1])
+
     if writer:
         # img = plot_to_image(fig4)
         writer.add_figure(f'{set_name}/core_acc', fig1, global_step=current_epoch)
-        writer.add_figure(f'{set_name}/core_inv', fig2, global_step=current_epoch)
+        writer.add_figure(f'{set_name}/core_inv_threshold', fig2, global_step=current_epoch)
+        writer.add_figure(f'{set_name}/core_inv_mean', fig3, global_step=current_epoch)
 
     plt.close('all')
 

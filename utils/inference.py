@@ -12,7 +12,7 @@ def infer_core_wise(predictions, core_len, roi_coors, ood_scores=None):
     :return:
     """
     counter = 0
-    core_feat1, core_res1, core_l1, core_ood = [], [], [], []
+    core_feat1, core_res1, core_l1, core_l2, core_ood = [], [], [], [], []
     prediction_maps = []
 
     # find a label for each core
@@ -20,7 +20,7 @@ def infer_core_wise(predictions, core_len, roi_coors, ood_scores=None):
         temp = predictions[counter:(counter + core_len[i])]
         core_res1.append(temp)
         core_l1.append(np.greater(temp[:, 1], temp[:, 0]).sum() / core_len[i])
-        # core_l1.append(temp[:, 1].sum() / core_len[i])
+        core_l2.append(temp[:, 1].sum() / core_len[i])
         temp = temp[:, 1]
         th = 0.5
         # core_feat1.append([temp[temp > th].mean(), len(temp[temp > th]), temp[temp < th].mean(), len(temp[temp < th])])
@@ -30,4 +30,4 @@ def infer_core_wise(predictions, core_len, roi_coors, ood_scores=None):
         # heatmap = np.zeros((roi_coors[i][0].max()+1, roi_coors[i][1].max()+1))
         # heatmap[roi_coors[i][0], roi_coors[i][1]] = core_res1[i][:, 1]
         # prediction_maps.append(heatmap)
-    return core_l1, core_ood, prediction_maps
+    return core_l1, core_l2, core_ood, prediction_maps

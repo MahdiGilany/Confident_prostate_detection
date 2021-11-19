@@ -1,3 +1,5 @@
+import numpy as np
+
 from utils import *
 from utils.dataloader import create_loader, create_loaders_test
 from utils.dataset import create_datasets_Exact
@@ -24,14 +26,15 @@ def train(opt):
 
     opt.num_samples = {'train': len(train_set[0]), 'val': len(val_set[0]), 'test': len(test_set[0])}
 
-    trn_ds = train_set[0]
+    trn_ds2 = train_set[0]
     val_ds = val_set[0]
     tst_ds = test_set[0]
 
-    trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True, pin_memory=True)
-    trn_dl2 = create_loaders_test(trn_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
-    val_dl = create_loaders_test(val_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
-    tst_dl = create_loaders_test(tst_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=True)
+    # trn_ds is for training and trn_ds2 is for testing on train set
+    trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True, pin_memory=False)##todo check pin memory
+    trn_dl2 = create_loaders_test(trn_ds2, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=False)
+    val_dl = create_loaders_test(val_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=False)
+    tst_dl = create_loaders_test(tst_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=False)
 
     train_set = [trn_dl2 if i == 0 else data for i, data in enumerate(train_set)]
     val_set = [val_dl if i == 0 else data for i, data in enumerate(val_set)]
@@ -69,11 +72,15 @@ def train(opt):
             evaluate(opt, model, test_set, epoch, set_name='Test', writer=writer)
             # testing on training set
             # _, trn_ds.inv_pred = evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer)
-            evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer)
+            _, trn_ds = evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer, trn_ds=trn_ds)
 
         # Shuffle indices of unlabelled dataset
         # if trn_ds.unsup_data is not None:
         #     np.random.shuffle(trn_ds.unsup_index)
+
+        if trn_ds.label_corrected:
+            trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True,
+                                   aug_lib=opt.aug_lib)
 
     model.save(opt.paths.checkpoint_dir, 'final')
     print('Done training!')
@@ -81,7 +88,7 @@ def train(opt):
 
 @eval_mode
 def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='Test', writer=None,
-             checkpoint_dir=None, checkpoint_prefix=''):
+             checkpoint_dir=None, checkpoint_prefix='', trn_ds=None):
     """
 
     :param checkpoint_prefix:
@@ -112,13 +119,13 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     if dataset_test is None:  # For standalone evaluation
         print('loading dataset...')
         # train_stat is missing currently, the evaluation perhaps will be wrong
-        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = create_datasets_test(
+        datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, true_labels, *ids = create_datasets_test(
             '/'.join([opt.data_source.data_root, opt.data_source.test_set]), dataset_name=opt.data_source.dataset,
             min_inv=0.4, state=state, norm=opt.normalize_input)
         tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
     else:  # For periodically testing
         # datasets, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = dataset_test
-        tst_dl, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, *true_labels = dataset_test
+        tst_dl, core_len, true_involvement, patient_id_bk, gs_bk, roi_coors, true_labels, *ids = dataset_test
 
     # Create dataloader to test data
     # tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
@@ -127,7 +134,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     predictions, ood_scores, acc_s, acc_sb = model.eval(tst_dl, net_index=1)
 
     # Infer core-wise predictions
-    predicted_involvement, ood, prediction_maps = infer_core_wise(predictions, core_len, roi_coors, ood_scores)
+    predicted_involvement, predicted_involvement2, ood, prediction_maps = infer_core_wise(predictions, core_len, roi_coors, ood_scores)
 
     # Calculating & logging metrics
     scores = {'acc_s': acc_s, 'acc_sb': acc_sb}
@@ -141,22 +148,26 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # for i, pm in enumerate(prediction_maps):
     #     plt.imsave(f'{heatmaps_dir }/{i}_{true_involvement[i]:.2f}.png', pm, vmin=0, vmax=1, cmap='gray')
 
-    net_interpretation(predicted_involvement, patient_id_bk,
+    net_interpretation(predicted_involvement, predicted_involvement2, patient_id_bk,
                        true_involvement, gs_bk, opt.paths.result_dir,
                        ood=ood, current_epoch=current_epoch, set_name=set_name,
                        writer=writer, scores=scores, threshold=opt.core_th)
 
-    if set_name.lower() == 'train':
-        predicted_involvement = np.concatenate(
-            [np.repeat(pred_inv, cl) for (pred_inv, cl) in zip(predicted_involvement, core_len)])
+    # if set_name.lower() == 'train':
+    #     predicted_involvement = np.concatenate(
+    #         [np.repeat(pred_inv, cl) for (pred_inv, cl) in zip(predicted_involvement, core_len)])
     # Tensorboard logging
     if writer:
         for score_name, score in zip(scores.keys(), scores.values()):
             writer.add_scalar(f'{set_name}/{score_name.upper()}', score, current_epoch)
 
+    # correct labels if the difference between predicted and true involvements satisfies the threshold
+    if (set_name.lower() == 'train') and (trn_ds is not None) and (current_epoch > opt.epoch_start_correct):
+        trn_ds.correct_labels(ids[0], core_len, predictions, true_involvement, predicted_involvement, opt.correcting)
+
     # return scores['acc'], predicted_involvement
     # return scores['acc_s'], predicted_involvement
-    return scores['acc_b'], predicted_involvement
+    return scores['acc_b'], trn_ds
 
 
 def main():
