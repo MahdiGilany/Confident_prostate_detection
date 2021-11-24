@@ -37,7 +37,8 @@ def get_model(opt, network, device, mode, classifier=None):
             model.init_optimizers(opt.lr, opt.n_epochs,
                                   opt.train.lr_scheduler.epoch_decay_start,
                                   opt.train.coteaching.forget_rate,
-                                  opt.train.coteaching.num_gradual, opt.train.coteaching.exponent)
+                                  opt.train.coteaching.num_gradual,
+                                  opt.train.coteaching.exponent, n_batches=opt.num_batches['train'])
         else:
             model = cot(network, device, opt.tasks_num_class[0], mode='test', classifier=classifier,
                         opt=opt, epochs=opt.n_epochs,  # optional

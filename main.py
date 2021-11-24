@@ -24,14 +24,12 @@ def train(opt):
         unsup_aug_type=opt.unsup_aug_type, dynmc_dataroot=opt.data_source.dynmc_dataroot
     )
 
-    opt.num_samples = {'train': len(train_set[0]), 'val': len(val_set[0]), 'test': len(test_set[0])}
-
     trn_ds2 = train_set[0]
     val_ds = val_set[0]
     tst_ds = test_set[0]
 
     # trn_ds is for training and trn_ds2 is for testing on train set
-    trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True, pin_memory=False)##todo check pin memory
+    trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True, pin_memory=True)##todo check pin memory
     trn_dl2 = create_loaders_test(trn_ds2, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=False)
     val_dl = create_loaders_test(val_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=False)
     tst_dl = create_loaders_test(tst_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=False)
@@ -39,6 +37,9 @@ def train(opt):
     train_set = [trn_dl2 if i == 0 else data for i, data in enumerate(train_set)]
     val_set = [val_dl if i == 0 else data for i, data in enumerate(val_set)]
     test_set = [tst_dl if i == 0 else data for i, data in enumerate(test_set)]
+
+    opt.num_samples = {'train': len(train_set[0]), 'val': len(val_set[0]), 'test': len(test_set[0])}
+    opt.num_batches = {'train': len(trn_dl)}
 
     # Setup models and training strategy
     # ToDo: Multiple GPUS
@@ -79,8 +80,8 @@ def train(opt):
         #     np.random.shuffle(trn_ds.unsup_index)
 
         if trn_ds.label_corrected:
-            trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True,
-                                   aug_lib=opt.aug_lib)
+            trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers,
+                                   add_sampler=True, pin_memory=False)
 
     model.save(opt.paths.checkpoint_dir, 'final')
     print('Done training!')

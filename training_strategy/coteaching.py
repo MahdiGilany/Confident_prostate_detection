@@ -47,7 +47,7 @@ class CoTeaching(Model):
 
     def init_optimizers(self, lr: float = 1e-3,
                         n_epochs=None, epoch_decay_start=-1, forget_rate=.2,
-                        num_gradual=10, exponent=1):
+                        num_gradual=10, exponent=1, n_batches=None):
         """
         Create optimizers for networks listed in self.network_list
         :param lr:
@@ -58,30 +58,47 @@ class CoTeaching(Model):
         :param forget_rate:
         :param num_gradual:
         :param exponent:
+        :param n_batches:
         :return:
         """
         # Set-up learning rate scheduler alpha and betas for Adam Optimizer
         net1, net2 = self.network_list
 
-        self.optimizer1 = optim.AdamW(self.params_list[0], lr=float(lr), amsgrad=True)  # , weight_decay=1e-3)
-        self.optimizer2 = optim.AdamW(self.params_list[1], lr=float(lr), amsgrad=True)  # , weight_decay=1e-3)
-        # self.optimizer1 = NovoGrad(self.params_list[0], lr=float(lr), grad_averaging=True, weight_decay=0.001)
-        # self.optimizer2 = NovoGrad(self.params_list[1], lr=float(lr), grad_averaging=True, weight_decay=0.001)
+        # self.optimizer1 = optim.AdamW(self.params_list[0], lr=float(lr), amsgrad=True)  # , weight_decay=1e-3)
+        # self.optimizer2 = optim.AdamW(self.params_list[1], lr=float(lr), amsgrad=True)  # , weight_decay=1e-3)
 
-        # self.scheduler1 = torch.optim.lr_scheduler.OneCycleLR(self.optimizer1, max_lr=lr, steps_per_epoch=554,
-        #                                                       epochs=n_epochs)
-        # self.scheduler2 = torch.optim.lr_scheduler.OneCycleLR(self.optimizer2, max_lr=lr, steps_per_epoch=554,
-        #                                                       epochs=n_epochs)
+        self.optimizer1 = NovoGrad(self.params_list[0], lr=float(lr),
+                                   weight_decay=1e-3)  # , grad_averaging=True, weight_decay=0.001)
+        self.optimizer2 = NovoGrad(self.params_list[1], lr=float(lr),
+                                   weight_decay=1e-3)  # , grad_averaging=True, weight_decay=0.001)
+
+
+        self.scheduler1 = torch.optim.lr_scheduler.OneCycleLR(self.optimizer1, float(lr), epochs=n_epochs,
+                                                              steps_per_epoch=n_batches,
+                                                              pct_start=0.3, anneal_strategy='cos', cycle_momentum=True,
+                                                              base_momentum=0.85,
+                                                              max_momentum=0.95, div_factor=10.0,
+                                                              final_div_factor=10000.0, three_phase=False,
+                                                              last_epoch=-1, verbose=False)
+        self.scheduler2 = torch.optim.lr_scheduler.OneCycleLR(self.optimizer2, float(lr), epochs=n_epochs,
+                                                              steps_per_epoch=n_batches,
+                                                              pct_start=0.3, anneal_strategy='cos', cycle_momentum=True,
+                                                              base_momentum=0.85,
+                                                              max_momentum=0.95, div_factor=10.0,
+                                                              final_div_factor=10000.0, three_phase=False,
+                                                              last_epoch=-1, verbose=False)
+
         # self.scheduler1 = torch.optim.lr_scheduler.CyclicLR(self.optimizer1, base_lr=lr/10, max_lr=lr,
         #                                                     step_size_up=1000, cycle_momentum=False,
         #                                                     mode="triangular2")
         # self.scheduler2 = torch.optim.lr_scheduler.CyclicLR(self.optimizer2, base_lr=lr, max_lr=lr*10,
         #                                                     step_size_up=1000, cycle_momentum=False,
         #                                                     mode="triangular2")
-        self.scheduler1 = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer1, 10, T_mult=1, eta_min=float(lr)/10, last_epoch=-1)  # lr/10
-        self.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer2, 10, T_mult=1, eta_min=float(lr)/10, last_epoch=-1)  # lr/10
+
+        # self.scheduler1 = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        #     self.optimizer1, 10, T_mult=1, eta_min=float(lr)/10, last_epoch=-1)  # lr/10
+        # self.scheduler2 = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        #     self.optimizer2, 10, T_mult=1, eta_min=float(lr)/10, last_epoch=-1)  # lr/10
         if n_epochs is not None:
             self.forget_rate_schedule = forget_rate_scheduler(
                 n_epochs, forget_rate, num_gradual, exponent)

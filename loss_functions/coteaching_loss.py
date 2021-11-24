@@ -202,8 +202,12 @@ def balance_clipping(label, index, num_classes=2):
     :param num_classes:
     :return:
     """
-
-    min_num = torch.histc(label[index], num_classes).min().item()
+    chosen_array = label[index]
+    if len(chosen_array)>0:
+        min_num = torch.histc(chosen_array, num_classes).min().item()
+    else:
+        print('oops! no update for this batch', label, index)
+        min_num = 0
     index_b = []
     for k in range(num_classes):
         index_b.append(index[label[index] == k][:min_num])
