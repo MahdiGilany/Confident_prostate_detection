@@ -11,6 +11,9 @@ from self_time.optim.pretrain import get_transform
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+import pandas as pd
+from sklearn.model_selection import GroupShuffleSplit
+
 from utils.misc import load_matlab
 from utils.misc import load_pickle
 from utils.misc import squeeze_Exact
@@ -589,13 +592,16 @@ def shuffle_patients(input_data, signal_split=False):
     return input_data
 
 
-def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal_split=False):
+def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal_split=False,
+               split_rs=-1, val_size=0.2):
     """
     Remove data points which have percentage of zeros greater than p_thr
     :param input_data:
     :param p_thr:
     :param to_norm:
     :param shffl_patients:
+    :param split_rs:
+    :param val_size:
     :return:
     """
     for set_name in ['train', 'val', 'test']:
@@ -604,6 +610,8 @@ def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal
             input_data = normalize(input_data, set_name, to_framemax=False)
     if shffl_patients or signal_split:
         input_data = shuffle_patients(input_data, signal_split=signal_split)
+    if split_rs >= 0:
+        input_data = merge_split_train_val(input_data, random_state=split_rs, val_size=val_size)
     return input_data
 
 
@@ -911,7 +919,8 @@ def _preprocess(x_train):
 ########################################################################################################################
 def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
                           unlabelled_data_file=None, unsup_aug_type=None, to_norm=False,
-                          signal_split=False, use_inv=True, use_patch=False, dynmc_dataroot=None):
+                          signal_split=False, use_inv=True, use_patch=False, dynmc_dataroot=None,
+                          split_random_state=-1, val_size=.2):
     """
     Create training, validation and test sets
     :param data_file:
@@ -929,7 +938,8 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     input_data = load_matlab(data_file)
     print("loading done")
 
-    input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split)
+    input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split,
+                            split_rs=split_random_state, val_size=val_size)
 
     trn_ds = DatasetV1(*extract_subset(input_data, 'train', 0.4), initial_min_inv=min_inv, aug_type=aug_type)
 
@@ -1230,3 +1240,88 @@ def extract_subset(input_data, set_name, min_included_inv=.4, to_concat=True, co
         #           'roi_coors', 'stn']:
         #     eval(f'{v} = get_included({v})')
         # return data, label, core_name, inv, core_id, patient_id, frame_id, core_len, roi_coors, stn
+
+
+def merge_split_train_val(input_data, random_state=0, val_size=.4, verbose=False):
+    """
+
+    :param input_data:
+    :param random_state:
+    :param val_size:
+    :param verbose:
+    :return:
+    """
+    # merge train-val then randomize patient ID to split train-val again
+    gs = list(input_data["GS_train"]) + list(input_data['GS_val'])
+    pid = list(input_data["PatientId_train"]) + list(input_data['PatientId_val'])
+    inv = list(input_data["inv_train"]) + list(input_data['inv_val'])
+
+    df1 = pd.DataFrame({'pid': pid, 'gs': gs, 'inv': inv})
+    # df1 = df1.assign(gs_merge=df1.gs.replace({'-': 'Benign',
+    #                                           '3+3': 'G3', '3+4': 'G3', '4+3': 'G4',
+    #                                           '4+4': 'G4', '4+5': 'G4', '5+4': 'G4'}))
+    df1 = df1.assign(condition=df1.gs.replace({'Benign': 'Benign', 'G7': 'Cancer', 'G8': 'Cancer',
+                                                     'G9': 'Cancer', 'G10': 'Cancer'}))
+    # df1.gs.replace({'-': 'Benign'}, inplace=True)
+
+    train_inds, test_inds = next(GroupShuffleSplit(test_size=val_size, n_splits=2,
+                                                   random_state=random_state).split(df1, groups=df1['pid']))
+    df1 = df1.assign(group='train')
+    df1.loc[test_inds, 'group'] = 'val'
+    df1 = df1.sort_values(by='pid')
+
+    # for _ in df1.pid.unique():
+    #     tmp1 = list(np.unique(df1[df1.pid <= _].gs_merge, return_counts=True))
+    #     tmp1[1] = np.round(tmp1[1] / tmp1[1].sum(), 2)
+    #     tmp2 = list(np.unique(df1[df1.pid > _].gs_merge, return_counts=True))
+    #     tmp2[1] = np.round(tmp2[1] / tmp2[1].sum(), 2)
+    #     print(_, dict(zip(*tmp1)), dict(zip(*tmp2)))
+
+    # import seaborn as sns
+    # import pylab as plt
+    # import matplotlib
+    # matplotlib.use('TkAgg')
+    # # tr, v = df1[df1.group == 'train'], df1[df1.group == 'val']
+    # plt.close('all')
+    # sns.countplot(x='gs_merge', data=df1[(df1.inv >= .4) | (df1.inv == 0)], hue='group')
+    # plt.show()
+
+    pid_tv = {
+        'train': df1[df1.group == 'train'].pid.unique(),
+        'val': df1[df1.group == 'val'].pid.unique(),
+    }
+    # Merge train - val
+    keys = [f[:-4] for f in input_data.keys() if 'val' in f]
+    merge = {}
+    for k in keys:
+        if isinstance(input_data[f'{k}_train'], list):
+            merge[k] = input_data[f'{k}_train'] + input_data[f'{k}_val']
+        else:
+            merge[k] = np.concatenate([input_data[f'{k}_train'], input_data[f'{k}_val']], axis=0)
+
+    # Initialize the new input_data
+    target = {}
+    for set_name in ['train', 'val']:
+        for k in keys:
+            target[f'{k}_{set_name}'] = []
+    # Re-split data into two sets based on randomized patient ID
+    for i, pid in enumerate(merge['PatientId']):
+        for set_name in ['train', 'val']:
+            if pid in pid_tv[set_name]:
+                for k in keys:
+                    k_target = f'{k}_{set_name}'
+                    target[k_target].append(merge[k][i])
+    # Assign to original input data after finishing creating a new one
+    for set_name in ['train', 'val']:
+        for k in keys:
+            k_target = f'{k}_{set_name}'
+            input_data[k_target] = target[k_target]
+            if isinstance(merge[k], np.ndarray):
+                input_data[k_target] = np.array(target[k_target]).astype(merge[k].dtype)
+
+    if verbose:
+        for set_name in ['train', 'val']:
+            for k in keys:
+                print(k, len(input_data[f'{k}_{set_name}']))
+
+    return input_data

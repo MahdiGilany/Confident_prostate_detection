@@ -21,7 +21,8 @@ def train(opt):
         data_file='/'.join([opt.data_source.data_root, opt.data_source.train_set]),
         unlabelled_data_file='/'.join([opt.data_source.data_root, opt.data_source.unlabelled_set]),
         norm=opt.normalize_input, aug_type=opt.aug_type, min_inv=opt.min_inv, n_views=opt.train.n_views,
-        unsup_aug_type=opt.unsup_aug_type, dynmc_dataroot=opt.data_source.dynmc_dataroot
+        unsup_aug_type=opt.unsup_aug_type, dynmc_dataroot=opt.data_source.dynmc_dataroot,
+        split_random_state=opt.split_random_state, val_size=opt.val_size
     )
 
     trn_ds2 = train_set[0]
@@ -135,11 +136,11 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     predictions, ood_scores, acc_s, acc_sb = model.eval(tst_dl, net_index=1)
 
     # Infer core-wise predictions
-    predicted_involvement, predicted_involvement2, ood, prediction_maps = infer_core_wise(predictions, core_len, roi_coors, ood_scores)
+    predicted_involvement_thr, predicted_involvement_mean, ood, prediction_maps = infer_core_wise(predictions, core_len, roi_coors, ood_scores)
 
     # Calculating & logging metrics
     scores = {'acc_s': acc_s, 'acc_sb': acc_sb}
-    scores = compute_metrics(predicted_involvement, true_involvement,
+    scores = compute_metrics(predicted_involvement_thr, true_involvement,
                              current_epoch=current_epoch, verbose=True, scores=scores,
                              threshold=opt.core_th)
 
@@ -149,7 +150,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # for i, pm in enumerate(prediction_maps):
     #     plt.imsave(f'{heatmaps_dir }/{i}_{true_involvement[i]:.2f}.png', pm, vmin=0, vmax=1, cmap='gray')
 
-    net_interpretation(predicted_involvement, predicted_involvement2, patient_id_bk,
+    net_interpretation(predicted_involvement_thr, predicted_involvement_mean, patient_id_bk,
                        true_involvement, gs_bk, opt.paths.result_dir,
                        ood=ood, current_epoch=current_epoch, set_name=set_name,
                        writer=writer, scores=scores, threshold=opt.core_th)
@@ -164,7 +165,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
 
     # correct labels if the difference between predicted and true involvements satisfies the threshold
     if (set_name.lower() == 'train') and (trn_ds is not None) and (current_epoch > opt.epoch_start_correct):
-        trn_ds.correct_labels(ids[0], core_len, predictions, true_involvement, predicted_involvement, opt.correcting)
+        trn_ds.correct_labels(ids[0], core_len, predictions, true_involvement, predicted_involvement_thr, opt.correcting)
 
     # return scores['acc'], predicted_involvement
     # return scores['acc_s'], predicted_involvement

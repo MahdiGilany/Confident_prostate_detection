@@ -8,6 +8,8 @@ self_train: False
 variational: False
 multitask: False
 is_eval: False
+val_size: .2
+split_random_state: 27
 
 paths: # 'exp_name' will be replaced by actual experiment name
   log_dir: experiments/exp_name/logs
@@ -29,7 +31,7 @@ data_source:
 # Tunable (iteratively) hyper-parameters
 seed: 0
 n_epochs: 100
-epoch_start_correct: 30
+epoch_start_correct: 1000
 total_iters: 20000
 #backbone: [ Inception, Inception ]  # SimConv4 Inception resnet_ucr
 backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
@@ -99,4 +101,4 @@ elr_beta: .7
 
 correcting:
   inv_dif_thr: .1
-  prob_thr: .7
+  prob_thr: .85
