@@ -109,13 +109,20 @@ class ResNet(nn.Module):
         return out
 
 
-def ResNet18(num_classes, num_channels=3, input_size=32):
-    return ResNet(BasicBlock, [1,1,1,1], num_classes, num_channels=num_channels,
+def ResNet10(num_classes, num_channels=3, input_size=32):
+    return ResNet(BasicBlock, [1, 1, 1, 1], num_classes, num_channels=num_channels,
                   input_size=input_size)
+
+
+def ResNet18(num_classes, num_channels=3, input_size=32):
+    return ResNet(BasicBlock, [2,2,2,2], num_classes, num_channels=num_channels,
+                  input_size=input_size)
+
 
 def resnet10Small(num_classes, in_channels=3, input_size=32, pretrained=False):
     return ResNet(BasicBlock, [1,1,1,1], num_classes, num_channels=in_channels,
                   input_size=input_size)
+
 
 def resnet18Small(num_classes, in_channels=3, input_size=32, pretrained=False):
     return ResNet(BasicBlock, [2,2,2,2], num_classes, num_channels=in_channels,

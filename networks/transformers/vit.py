@@ -29,7 +29,7 @@ from torch import nn
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-from .resnet_small import ResNet18
+from .resnet_small import ResNet10
 from loss_functions.isomax import IsoMaxLossFirstPart, IsoMaxLossFirstPartV1
 
 # helpers
@@ -123,6 +123,7 @@ class ViT(nn.Module):
         # )
 
         self.to_patch_embedding = ResNet18PatchEmbedder(image_size=image_size, in_channels=in_channels)
+        # self.to_patch_embedding = ResNet18PatchEmbedderFFT(image_size=image_size, in_channels=in_channels)
 
         self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))
         self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
@@ -165,7 +166,7 @@ def ResNet18PatchEmbedder(image_size=(256, 256), embedding_dim=64, in_channels=1
 
     split_to_patches = Rearrange('b c (h p1) (w p2) -> (b h w) c p1 p2', p1=patch_size, p2=patch_size)
 
-    embed = ResNet18(embedding_dim, in_channels)
+    embed = ResNet10(embedding_dim, in_channels)
 
     assemble_embeddings = Rearrange('(b n) d -> b (n) d', n=num_patches)
 
@@ -175,8 +176,32 @@ def ResNet18PatchEmbedder(image_size=(256, 256), embedding_dim=64, in_channels=1
         assemble_embeddings
     )
 
+def ResNet18PatchEmbedderFFT(image_size=(256, 256), embedding_dim=64, in_channels=1):
+    """Returns a layer which embeds images into patch embeddings of 32x32 patch embeddings
+    by passing through a ResNet18 backbone"""
 
-def ResNet18_ViT(num_classes=2, in_channels=1):
+    patch_width = 32
+    patch_height = 64
+
+    height, width = image_size
+    num_patches = (height//patch_height)*(width//patch_width)
+
+    split_to_patches = Rearrange('b c (h p1) (w p2) -> (b h w) c p1 p2', p1=patch_height, p2=patch_width)
+
+    patch_rfft = Patch_rfft()
+
+    embed = ResNet10(embedding_dim, in_channels)
+
+    assemble_embeddings = Rearrange('(b n) d -> b (n) d', n=num_patches)
+
+    return nn.Sequential(
+        split_to_patches,
+        patch_rfft,
+        embed,
+        assemble_embeddings
+    )
+
+def ResNet10_ViT(num_classes=2, in_channels=1):
     model = ViT(
         image_size=(256, 256),
         patch_size=(32, 32),
@@ -190,10 +215,16 @@ def ResNet18_ViT(num_classes=2, in_channels=1):
 
     return model
 
+class Patch_rfft(torch.nn.Module):
+    def __init__(self):
+        super(Patch_rfft, self).__init__()
+    def forward(self, input):
+        return torch.fft.rfft(input, dim=-2)
+
 if __name__ == "__main__":
     import numpy as np
     from torchinfo import summary
-    net = ResNet18_ViT(num_classes=2, in_channels=1)
+    net = ResNet10_ViT(num_classes=2, in_channels=1)
     summary(net, input_size=[(2, 1, 256, 256)])
     # for p in net.parameters():
     #     if p.requires_grad:

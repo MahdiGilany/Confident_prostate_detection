@@ -186,17 +186,15 @@ def net_interpretation(predicted_label, predicted_label2, patient_id, involvemen
                 label[ip][i] = '-'
 
     fig1, ax1 = plt.subplots()
+    #todo: might overkill memory
     fig1.set_size_inches(18.5/2, 10.5/2)
     barbase = np.cumsum(np.concatenate((np.zeros((inv.shape[0], 1)), inv[:, 0:-1]), axis=1), 1)
 
     for i in range(maxc):
         ax1.bar(np.arange(len(patients)), inv[:, i].tolist(), 0.7, bottom=barbase[:, i], color=cmaps[:, i])
         ax1.EdgeColor = 'k'
-    plt.xticks(np.arange(len(patients)), patients)
+    plt.xticks(np.arange(len(patients)), patients.astype(int))
     plt.xlabel('Patient No.')
-
-    if plotting:
-        plt.show()
 
     width = np.array([p.get_width() for p in ax1.patches][0]).squeeze()
     joblblpos = inv / 2 + barbase
@@ -204,6 +202,9 @@ def net_interpretation(predicted_label, predicted_label2, patient_id, involvemen
         for k2 in range(inv.shape[1]):
             plt.text(k1-width/2., joblblpos[k1, k2], label[k1][k2] if inv[k1, k2] != 0 else '')
     # plt.savefig(f'{result_dir}/{set_name}_acc_per_core{current_epoch_str}.png')
+    if plotting:
+        plt.show()
+
     ood_sum = np.array([-_ood.sum() for _ood in ood])
     ood_normalized = ood_sum / ood_sum.sum()
 

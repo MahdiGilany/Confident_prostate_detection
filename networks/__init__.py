@@ -13,4 +13,5 @@ from .unet_modf import *
 from .resnet_bayes import resnet32 as resnet32_variational, resnet20 as resnet20_variational
 from .position_encoder import PosEncoder
 from .transformers.vit import *
-from .transformers.resnet_small import resnet10Small,resnet18Small
+from .transformers.resnet_small import resnet10Small, resnet18Small
+from .transformers.resvit import *

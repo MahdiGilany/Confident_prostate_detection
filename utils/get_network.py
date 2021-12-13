@@ -121,7 +121,8 @@ def get_network(backbone, device, in_channels, nb_class, num_positions=12,
         _net = densenet121
         net = _net(pretrained=False, num_classes=nb_class, in_channels=in_channels)
     elif backbone == 'resvit':
-        _net = ResNet18_ViT
+        _net = ResNet10_ViT
+        # _net = ResNet10_ViTv2
         net = _net(num_classes=nb_class, in_channels=in_channels)
     elif backbone == 'unet_modf':
         # _net = resnet20 if not variational else resnet20_variational
