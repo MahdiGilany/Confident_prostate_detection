@@ -20,7 +20,7 @@ def train(opt):
         dataset_name=opt.data_source.dataset,
         data_file='/'.join([opt.data_source.data_root, opt.data_source.train_set]),
         unlabelled_data_file='/'.join([opt.data_source.data_root, opt.data_source.unlabelled_set]),
-        norm=opt.normalize_input, aug_type=opt.aug_type, min_inv=opt.min_inv, n_views=opt.train.n_views,
+        norm=opt.normalize_input, aug_type=opt.aug_type, aug_prob=opt.aug_prob, min_inv=opt.min_inv, n_views=opt.train.n_views,
         unsup_aug_type=opt.unsup_aug_type, dynmc_dataroot=opt.data_source.dynmc_dataroot,
         split_random_state=opt.split_random_state, val_size=opt.val_size
     )

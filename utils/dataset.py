@@ -8,6 +8,7 @@ import torch.multiprocessing
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
 from self_time.optim.pretrain import get_transform
+from .aug import get_imgtransform
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -18,7 +19,8 @@ from utils.misc import load_matlab
 from utils.misc import load_pickle
 from utils.misc import squeeze_Exact
 from preprocessing.s02b_create_unsupervised_dataset import load_datasets as load_unlabelled_datasets
-
+from einops import rearrange
+from PIL import Image
 
 def preproc_input(x, norm_per_signal, condition=None):
     """Preprocess training or test data, filter data by condition"""
@@ -71,7 +73,7 @@ class DatasetV1(torch.utils.data.Dataset):
 
     def __init__(self, data, label, location, inv, core_id, patient_id, frame_id, core_len, roi_coors, stn,
                  aug_type: Union[list, str] = ('G2',), initial_min_inv=.7, n_neighbor=0,
-                 n_views=1, transform_prob=.2, degree=1, aug_lib='self_time', n_duplicates=1,
+                 n_views=1, transform_prob=.2, degree=1, aug_lib='imgaug', n_duplicates=1,
                  stn_alpha=1e-2):
         """"""
         self.data_dict = {
@@ -98,11 +100,11 @@ class DatasetV1(torch.utils.data.Dataset):
         self.make_dataset()
         self.index = np.arange(len(self.data))
 
-        # if aug_lib == 'self_time':
-        #     self.transform, self.to_tensor_transform = get_transform(
-        #         aug_type if isinstance(aug_type, list) else [aug_type, ],
-        #         prob=transform_prob, degree=degree,
-        #     )
+        if aug_lib == 'imgaug':
+            self.transform, self.to_tensor_transform = get_imgtransform(
+                aug_type if isinstance(aug_type, list) else [aug_type, ],
+                prob=transform_prob
+            )
         # elif aug_lib == 'tsaug':
         #     self.transform = (
         #             TimeWarp(max_speed_ratio=(2, 3), prob=transform_prob, seed=0) * n_duplicates
@@ -110,13 +112,13 @@ class DatasetV1(torch.utils.data.Dataset):
         #             + Drift(max_drift=(0.01, 0.4), seed=0) @ transform_prob
         #             + Convolve(window=['flattop', 'hann', 'triang'], size=(3, 11), prob=transform_prob, seed=0)
         #             + AddNoise(0, (0.01, 0.05), prob=transform_prob, seed=0)
-        #         #+ Reverse() @ transform_prob  # with 50% probability, reverse the sequence
+        #        # + Reverse() @ transform_prob  # with 50% probability, reverse the sequence
             # )
 
     def __getitem__(self, index):
         x, y, z, loss_weight = self.getitem_by_index(index)
         index = np.array(index)
-        # if self.aug_lib == 'tsaug':
+        # if self.aug_lib == 'imgaug':
         #     x = self.transform.augment(x)
         #     if self.n_duplicates > 1:
         #         rp = lambda _: np.repeat(_, self.n_duplicates, axis=0)
@@ -128,9 +130,10 @@ class DatasetV1(torch.utils.data.Dataset):
 
         img_list, label_list, loc_list, idx_list, loss_weight_list = [], [], [], [], []
 
-        x = x.T if x.ndim > 1 else x[..., np.newaxis]
+        # x = x.T if x.ndim > 1 else x[..., np.newaxis]
+        x = rearrange(x, 'c h w -> h w c')
         for _ in range(self.n_views):
-            img_transformed = self.transform(x).T
+            img_transformed = self.transform(x)
             img_list.append(self.to_tensor_transform(img_transformed))
             loc_list.append(z)
             label_list.append(y)
@@ -422,24 +425,34 @@ def remove_empty_data(input_data, set_name, p_thr=.2):
 
 def norm_01(x, *args):
     from sklearn.preprocessing import RobustScaler
-    transformer = args[1]
+    transformer = args[3]
 
     orig_shape = x.shape
     flattened = x.flatten()[..., np.newaxis]
 
+    # if transformer is None:
+    #     new_x = x.reshape(orig_shape[0], 286, -1)
+    #     new_x = np.swapaxes(new_x,1,2)
+    #     new_x = new_x.reshape(orig_shape[0]*15, 286)
+    #     transformer = RobustScaler().fit(new_x.T)
+    #     new_x = transformer.transform(new_x.T).T
+    #     new_x = new_x.reshape(orig_shape[0], 15, 286)
+    #     new_x = np.swapaxes(new_x,1,2)
+    #     x = new_x.reshape(orig_shape[0], 286, 3, 5)
+    #     return x
     if transformer is None:
-        new_x = x.reshape(orig_shape[0], 286, -1)
-        new_x = np.swapaxes(new_x,1,2)
-        new_x = new_x.reshape(orig_shape[0]*15, 286)
-        transformer = RobustScaler().fit(new_x.T)
-        new_x = transformer.transform(new_x.T).T
-        new_x = new_x.reshape(orig_shape[0], 15, 286)
-        new_x = np.swapaxes(new_x,1,2)
-        x = new_x.reshape(orig_shape[0], 286, 3, 5)
-        return x
+        # min_ = args[0]
+        # max_ = args[1]
+        x[x > 4] = 4.
+        x[x < -4] = -4.
+        min_ = x.min(axis=(2, 3)).reshape(orig_shape[0],orig_shape[1],1,1)
+        max_ = x.max(axis=(2, 3)).reshape(orig_shape[0],orig_shape[1],1,1)
+        new_x = (x - min_)/(max_ - min_)
+        # new_x = (x - min_)
+        return new_x
 
-    transfomed = transformer.transform(flattened)
-    x = transfomed[..., 0].reshape(orig_shape)
+    transfomer_ = transformer.transform(flattened)
+    x = transfomer_[..., 0].reshape(orig_shape)
 
     return x
     # return (x - x.min(axis=1, keepdims=True)) / (x.max(axis=1, keepdims=True) - x.min(axis=1, keepdims=True))
@@ -474,22 +487,30 @@ def stratify_groups(groups, num_time_series, marked_array, mark_low_threshold=.2
     return np.concatenate(row_idx), marked_array
 
 
-def normalize(input_data, set_name, to_all_cores=False, to_framemax=False):
-    _norm = norm_framemax if to_framemax else norm_01
-    frame_max = input_data[f'Frame_max_{set_name}']
-    transformer = None
+def normalize(input_data, to_all_cores=False, to_framemax=False):
+    # _norm = norm_framemax if to_framemax else norm_01
+    _norm = norm_01
+    for set_name in ['val', 'test', 'train']:
+        input_data[f'data_{set_name}'] = np.stack(input_data[f'data_{set_name}'], axis=0)
 
-    if to_all_cores:
-        from sklearn.preprocessing import RobustScaler
-        signal_data = input_data[f'data_{set_name}']
-        # signal_data = input_data[f'data_train']
-        list_s = [i for i in signal_data]
-        signal_data = np.concatenate(list_s)
-        a = signal_data.flatten()
-        transformer = RobustScaler().fit(a[...,np.newaxis])
+    min_ = input_data[f'data_train'].min()
+    max_ = input_data[f'data_train'].max()
 
-    for i, x in enumerate(input_data[f'data_{set_name}']):
-        input_data[f'data_{set_name}'][i] = _norm(x.astype('float32'), frame_max[i], transformer)
+    for set_name in ['val', 'test', 'train']:
+        frame_max = input_data[f'Frame_max_{set_name}'] if 'Frame_max_train' in input_data.keys() else None
+        transformer = None
+
+        if to_all_cores:
+            from sklearn.preprocessing import RobustScaler
+            signal_data = input_data[f'data_{set_name}']
+            # signal_data = input_data[f'data_train']
+            list_s = [i for i in signal_data]
+            signal_data = np.concatenate(list_s)
+            a = signal_data.flatten()
+            transformer = RobustScaler().fit(a[...,np.newaxis])
+
+        input_data[f'data_{set_name}'] = _norm(input_data[f'data_{set_name}'].astype('float32'),
+                                               min_, max_, frame_max, transformer)
     return input_data
 
 
@@ -604,10 +625,11 @@ def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal
     :param val_size:
     :return:
     """
-    for set_name in ['train', 'val', 'test']:
+    ##todo: the order is important here. Don't change
+    # for set_name in ['val', 'test', 'train']:
         # input_data = remove_empty_data(input_data, set_name, p_thr)
-        if to_norm:
-            input_data = normalize(input_data, set_name, to_framemax=False)
+    if to_norm:
+        input_data = normalize(input_data, to_framemax=False)
     if shffl_patients or signal_split:
         input_data = shuffle_patients(input_data, signal_split=signal_split)
     if split_rs >= 0:
@@ -917,8 +939,8 @@ def _preprocess(x_train):
 
 
 ########################################################################################################################
-def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_type='none', n_views=2,
-                          unlabelled_data_file=None, unsup_aug_type=None, to_norm=False,
+def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_type='none', aug_prob=0.2, n_views=2,
+                          unlabelled_data_file=None, unsup_aug_type=None, to_norm=True,
                           signal_split=False, use_inv=True, use_patch=False, dynmc_dataroot=None,
                           split_random_state=-1, val_size=.2):
     """
@@ -941,7 +963,8 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split,
                             split_rs=split_random_state, val_size=val_size)
 
-    trn_ds = DatasetV1(*extract_subset(input_data, 'train', 0.4), initial_min_inv=min_inv, aug_type=aug_type)
+    trn_ds = DatasetV1(*extract_subset(input_data, 'train', 0.4), initial_min_inv=min_inv, aug_type=aug_type,
+                       transform_prob=aug_prob)
 
     train_stats = None
     train_set = create_datasets_test_Exact(None, min_inv=0.4, state='train', norm=norm, input_data=input_data,

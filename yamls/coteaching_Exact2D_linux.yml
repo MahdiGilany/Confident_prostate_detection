@@ -34,8 +34,8 @@ n_epochs: 100
 epoch_start_correct: 1000
 total_iters: 20000
 #backbone: [ Inception, Inception ]  # SimConv4 Inception resnet_ucr
-#backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
-backbone: [ resvit, resvit ]
+backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
+#backbone: [ resvit, resvit ]
 #backbone: [ densenet, densenet ]
 #backbone: [ unet_modf, unet_modf ]
 #backbone: [ Classifier3L_2D, Classifier3L_2D ]  # SimConv4 Inception resnet_ucr Classifier3L
@@ -46,9 +46,10 @@ train_batch_size:  32
 lr: 1e-4
 normalize_input: none
 temperature: .5
-#aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
+aug_type: ['Flip','Rotate', 'ShearX','ShearY']
+#aug_type: 'none'
+aug_prob: 0.2
 unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
-aug_type: 'none'
 loss_name: 'ce'  # 'gce'
 min_inv: .7
 

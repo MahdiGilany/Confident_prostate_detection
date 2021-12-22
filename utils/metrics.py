@@ -66,6 +66,7 @@ def compute_metrics(predicted_involvement, true_involvement,
         scores[metric] = metrics[metric](core_labels, core_predictions)
     scores['corr'] = np.corrcoef(predicted_involvement, true_involvement)[0, 1]
     scores['mae'] = (np.abs(predicted_involvement - true_involvement)).sum()
+    scores['auc'] = metrics['auc'](core_labels, predicted_involvement)
 
     # andlabels = np.logical_and(predictions, labels)
     # norLabels = len(np.where(predictions + labels == 0)[0])
