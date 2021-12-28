@@ -15,6 +15,8 @@ from loss_functions import (
 from .vanilla import Model
 from utils.novograd import NovoGrad
 from loss_functions.simclr import info_nce_loss
+from utils.scheduler import WARMUP_SCHEDULER
+from loss_functions.isomax import IsoMaxLossSecondPart
 
 
 class CoTeaching(Model):
@@ -47,7 +49,7 @@ class CoTeaching(Model):
 
     def init_optimizers(self, lr: float = 1e-3,
                         n_epochs=None, epoch_decay_start=-1, forget_rate=.2,
-                        num_gradual=10, exponent=1, n_batches=None):
+                        num_gradual=10, exponent=1, n_batches=None, opt=None):
         """
         Create optimizers for networks listed in self.network_list
         :param lr:
@@ -102,6 +104,9 @@ class CoTeaching(Model):
         if n_epochs is not None:
             self.forget_rate_schedule = forget_rate_scheduler(
                 n_epochs, forget_rate, num_gradual, exponent)
+
+            self.label_scheduler = WARMUP_SCHEDULER['linear'](
+                1.0, n_batches*opt.core_wise.num_gradual)
 
     def optimize(self, loss: tuple):
         """
@@ -404,3 +409,163 @@ class CoTeachingUncertaintyAvU(CoTeaching):
 
         self.optimize((loss1, loss2))
         return out1, out2, loss1, loss2, extra
+
+
+class CoTeachingCorewise(CoTeaching):
+    def __init__(self, network: list, device, num_class, mode, aug_type='none',
+                 loss_name='gce', use_plus=False, num_positions=8, *args, **kwargs):
+        super(CoTeachingCorewise, self).__init__(network, device, num_class, mode, *args, **kwargs)
+
+    def optimize(self):
+        """
+
+        :param loss:
+        :return:
+        """
+        # loss1, loss2 = loss
+        # self.optimizer1.zero_grad()
+        # loss1.backward()
+        self.optimizer1.step()
+        if self.scheduler1:
+            self.scheduler1.step()
+
+        # self.optimizer2.zero_grad()
+        # loss2.backward()
+        self.optimizer2.step()
+        if self.scheduler2:
+            self.scheduler2.step()
+
+    def forward_backward(self, x_raw, n_batch, labels, true_inv, *args, **kwargs):
+        self.optimizer1.zero_grad()
+        self.optimizer2.zero_grad()
+        out1, out2, loss1, loss2 = self.forward_backward_cores(x_raw, n_batch, labels, true_inv,
+                                                               *args, **kwargs)
+        self.optimize()
+        return out1, out2, loss1, loss2, {'ind': None}
+
+    def forward_backward_cores(self, x_raw, n_batch, labels, true_inv, *args, **kwargs):
+        batch_size = x_raw.shape[0]
+        num_patches = x_raw.shape[1]
+
+        loss1 = []
+        loss2 = []
+        out1 = []
+        out2 = []
+
+        for c in range(batch_size):
+            ##todo loss2_c
+            # out1_c, *out2_c = self.infer(x_raw[c, ...], n_batch[c, ...], mode=self.mode)
+            out1_c = self.infer(x_raw[c, ...], n_batch[c, ...], mode='test')
+            loss1_c, loss2_c = self.compute_loss(out1_c, out1_c, labels[c, ...], true_inv[c, ...], kwargs['step'])
+
+            loss1_c.backward()
+            # loss2_c.backward()
+
+            ##todo it should be F.softmax(out1_c,dim=1)[:,1].mean()
+            out1.append(out1_c[:, 1].mean())
+            # out2.append(out2_c[:, 1].mean())
+            loss1.append(loss1_c)
+            # loss2.append(loss2_c)
+
+        # for c in range(43):
+        #     out1_c = self.infer(x_raw[:, c, ...], n_batch, mode='test')
+        #     loss1_c = IsoMaxLossSecondPart()(out1_c, labels[:, 1], reduction='mean')
+        #     loss1_c.backward()
+        #     # self.optimizer1.step()
+        #
+        #     out1.append(out1_c[:, 1].mean())
+        #     loss1.append(loss1_c)
+
+        out1 = torch.stack(out1, dim=0)
+        # out2 = torch.stack(out2, dim=0)
+        loss1 = torch.stack(loss1, dim=0)
+        # loss2 = torch.stack(loss1, dim=0)
+
+        return out1, out2, loss1, loss1
+
+    def compute_loss(self, out1_c, out2_c, label_c, inv_c, step):
+        no_patches = out1_c.size(0)
+        new_labels = label_c.repeat(no_patches, 1)
+        ind_1_sorted = np.arange(no_patches)
+
+        if inv_c > 0:
+            ind_1_sorted = np.argsort(out1_c[:, 1].data.cpu())
+            ind_2_sorted = np.argsort(out2_c[:, 1].data.cpu())
+
+            pct_zero = self.label_scheduler(step)
+            no_zeros = int((1.-inv_c) * pct_zero * no_patches)
+            no_ones = no_patches - no_zeros
+            array_zero = (1-label_c).repeat(no_zeros, 1)
+            array_one = label_c.repeat(no_ones, 1)
+            new_labels = torch.cat([array_one, array_zero])
+            new_labels = torch.flip(new_labels, [0])
+
+        # loss1_c = F.cross_entropy(out1_c[ind_1_sorted], new_labels[:, 1])
+        loss1_c = IsoMaxLossSecondPart()(out1_c[ind_1_sorted], new_labels[:, 1], reduction='mean')
+
+        return loss1_c, None
+
+    def train(self, epoch, trn_dl, writer=None, bs=10):
+        """
+
+        :param writer:
+        :param epoch:
+        :param trn_dl:
+        :param semi_supervised:
+        :return:
+        """
+        [_.train() for _ in self.network_list]
+        loss, correct, total = 0, 0, 0
+        # semi_supervised = (trn_dl.dataset.n_views > 1) or (trn_dl.dataset.unsup_data is not None)
+        forget_rate = 0 if self.forget_rate_schedule is None else self.forget_rate_schedule[epoch]
+        all_ind = {'benign': [], 'cancer': [], 'cancer_ratio': []}
+        unc_list = []
+
+        with tqdm(trn_dl, unit="batch") as t_epoch:
+            t_epoch.set_description(f"Epoch {epoch}")
+            for i, batch in enumerate(t_epoch):
+                if self.aug_type != 'none':
+                    batch_data = [torch.cat(_, 0).to(self.device) for _ in batch]
+                else:
+                    batch_data = [_.to(self.device) for _ in batch]
+
+                # Parse batch
+                x_raw, y_batch, n_batch, true_inv, *extra_data = batch_data
+                if len(extra_data) == 2:
+                    loss_weights, x_unsup = extra_data
+                else:
+                    # loss_weights, x_unsup = extra_data[0], None
+                    loss_weights, x_unsup = None, None
+
+                # Forward & Backward
+                out1, out2, loss1, loss2, extra = self.forward_backward(
+                    x_raw, n_batch, y_batch,
+                    # loss_weights=loss_weights,
+                    forget_rate=forget_rate,
+                    step=epoch * len(trn_dl) + i,
+                    true_inv=true_inv,
+                    epoch=epoch,
+                    batch_size=trn_dl.batch_size,
+                    # semi_supervised=semi_supervised,
+                    # n_views=trn_dl.dataset.n_views,
+                    x_unsup=x_unsup,
+                )
+                # if semi_supervised:  #
+                #     idx_sup = extra['idx_sup']
+                #     x_raw, n_batch, y_batch = x_raw[idx_sup], n_batch[idx_sup], y_batch[idx_sup]
+                total += y_batch.size(0)
+                # correct += ((out1 > 0.5) == (y_batch[:, 1])).sum().item()
+                #todo chane it
+                correct += 1
+                loss += 0.5*(loss1.sum() + loss2.sum()).item()
+                self.on_batch_end(t_epoch, loss=loss/total, acc=correct/total,
+                                  opt1_lr=self.optimizer1.param_groups[0]['lr'],
+                                  opt2_lr=self.optimizer2.param_groups[0]['lr'])
+
+                # if 'ind' in extra.keys():
+                #     ind = extra['ind']
+                #     [all_ind[k].extend(ind[k]) for k in ind.keys()]
+                if 'unc' in extra.keys():
+                    unc_list.append(extra['unc'])
+
+        return loss/total, correct/total

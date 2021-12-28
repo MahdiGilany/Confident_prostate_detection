@@ -22,6 +22,8 @@ def get_model(opt, network, device, mode, classifier=None):
             cot = CoTeachingUncertaintyAvU
         elif opt.multitask:
             cot = CoTeachingMultiTask
+        elif opt.core_wise.activation:
+            cot = CoTeachingCorewise
         else:
             cot = CoTeaching
         if mode.lower() == 'train':
@@ -38,7 +40,7 @@ def get_model(opt, network, device, mode, classifier=None):
                                   opt.train.lr_scheduler.epoch_decay_start,
                                   opt.train.coteaching.forget_rate,
                                   opt.train.coteaching.num_gradual,
-                                  opt.train.coteaching.exponent, n_batches=opt.num_batches['train'])
+                                  opt.train.coteaching.exponent, n_batches=opt.num_batches['train'], opt=opt)
         else:
             model = cot(network, device, opt.tasks_num_class[0], mode='test', classifier=classifier,
                         opt=opt, epochs=opt.n_epochs,  # optional

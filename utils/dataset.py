@@ -21,6 +21,7 @@ from utils.misc import squeeze_Exact
 from preprocessing.s02b_create_unsupervised_dataset import load_datasets as load_unlabelled_datasets
 from einops import rearrange
 from PIL import Image
+from utils.scheduler import WARMUP_SCHEDULER
 
 def preproc_input(x, norm_per_signal, condition=None):
     """Preprocess training or test data, filter data by condition"""
@@ -74,7 +75,7 @@ class DatasetV1(torch.utils.data.Dataset):
     def __init__(self, data, label, location, inv, core_id, patient_id, frame_id, core_len, roi_coors, stn,
                  aug_type: Union[list, str] = ('G2',), initial_min_inv=.7, n_neighbor=0,
                  n_views=1, transform_prob=.2, degree=1, aug_lib='imgaug', n_duplicates=1,
-                 stn_alpha=1e-2):
+                 stn_alpha=1e-2, opt=None):
         """"""
         self.data_dict = {
             'data': data,
@@ -99,6 +100,10 @@ class DatasetV1(torch.utils.data.Dataset):
         self.n_neighbor = n_neighbor
         self.make_dataset()
         self.index = np.arange(len(self.data))
+        self.corewis = opt.core_wise.activation
+        ##todo corelen is not neccessarily the same for other datasets
+        self.curr_core_len = [self.core_len[0]]*int(self.label.size(0)/self.core_len[0])
+        self.label_scheduler = WARMUP_SCHEDULER['linear'](1.0, opt.core_wise.num_gradual)
 
         if aug_lib == 'imgaug':
             self.transform, self.to_tensor_transform = get_imgtransform(
@@ -116,6 +121,10 @@ class DatasetV1(torch.utils.data.Dataset):
             # )
 
     def __getitem__(self, index):
+        if self.corewis:
+            x, y, z, inv, loss_weight = self.getcore_by_index(index)
+            return x, y, z, inv, loss_weight
+
         x, y, z, loss_weight = self.getitem_by_index(index)
         index = np.array(index)
         # if self.aug_lib == 'imgaug':
@@ -174,6 +183,20 @@ class DatasetV1(torch.utils.data.Dataset):
         #     loss_weight = np.repeat(1, x.shape[0]).astype('float32') if not isinstance(index, int) else 1
         loss_weight = np.repeat(1, x.shape[0]).astype('float32') if not isinstance(index, int) else 1
         return x, y, z, loss_weight
+
+    def getcore_by_index(self, index):
+        cor_cumsum = np.cumsum(self.curr_core_len)
+        st_idx = cor_cumsum[index-1] if index!=0 else 0
+        end_idx = cor_cumsum[index]
+
+        ##todo squeeze?
+        x = self.data[st_idx:end_idx]
+        x = x.astype('float32')
+        y = self.label[st_idx]
+        z = self.location[st_idx]
+        inv = self.inv[st_idx]
+        loss_weight = np.repeat(1, x.shape[0]).astype('float32') if not isinstance(index, int) else 1
+        return x, y, z, inv, loss_weight
 
     def _filter(self, key, condition):
         return self.data_dict[key][condition]
@@ -252,7 +275,46 @@ class DatasetV1(torch.utils.data.Dataset):
         else:
             self.label_corrected = False
 
+    def anneal_label(self, predictions, core_len, true_involvement, predicted_involvement_thrd, current_epoch):
+        cor_cumsum = np.cumsum(core_len)
+        all_label = torch.tensor(np.copy(self.data_dict['label']))
+
+        for index in range(len(core_len)):
+            st_idx = cor_cumsum[index - 1] if index != 0 else 0
+            end_idx = cor_cumsum[index]
+            if true_involvement[index] >= self.initial_min_inv:
+                new_labels = self.find_labels(predictions[st_idx: end_idx, ...], torch.tensor([[0, 1]]),
+                                              true_involvement[index], current_epoch)
+                all_label[st_idx:end_idx] = new_labels
+
+        # updating the labels
+        condition = (self.data_dict['inv'] >= self.initial_min_inv) + (self.data_dict['inv'] == 0.)
+        self.label = all_label[condition]
+
+    def find_labels(self, predictions_c, label_c, inv_c, step):
+        no_patches = predictions_c.shape[0]
+        # new_labels = label_c.repeat(no_patches, 1)
+
+        # if inv_c > 0:
+        # percentage of keeping 1 labels compared to 0s
+        pct_zero = self.label_scheduler(step)
+        no_zeros = int((1.-inv_c) * pct_zero * no_patches)
+        no_ones = no_patches - no_zeros
+        array_zero = (1-label_c).repeat(no_zeros, 1)
+        array_one = label_c.repeat(no_ones, 1)
+        new_labels = torch.cat([array_one, array_zero])
+        new_labels = torch.flip(new_labels,[0])
+
+        # sorting the labels based on sorted predictions
+        ind1_predsorted = np.argsort(predictions_c[:, 1])
+        ind1_lablsorted = np.argsort(ind1_predsorted)
+        new_labels = new_labels[ind1_lablsorted]
+
+        return new_labels
+
     def __len__(self):
+        if self.corewis:
+            return len(self.curr_core_len)
         return self.label.size(0)
 
     @staticmethod
@@ -625,7 +687,6 @@ def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal
     :param val_size:
     :return:
     """
-    ##todo: the order is important here. Don't change
     # for set_name in ['val', 'test', 'train']:
         # input_data = remove_empty_data(input_data, set_name, p_thr)
     if to_norm:
@@ -940,9 +1001,9 @@ def _preprocess(x_train):
 
 ########################################################################################################################
 def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_type='none', aug_prob=0.2, n_views=2,
-                          unlabelled_data_file=None, unsup_aug_type=None, to_norm=True,
+                          unlabelled_data_file=None, unsup_aug_type=None, to_norm=False,
                           signal_split=False, use_inv=True, use_patch=False, dynmc_dataroot=None,
-                          split_random_state=-1, val_size=.2):
+                          split_random_state=-1, val_size=.2, opt=None):
     """
     Create training, validation and test sets
     :param data_file:
@@ -960,11 +1021,15 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     input_data = load_matlab(data_file)
     print("loading done")
 
+   ##todo
+    # for set_name in ['train', 'val', 'test']:
+    #     input_data[f'data_{set_name}'] = np.random.rand(len(input_data[f'data_{set_name}']), 43,256,256)
+
     input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split,
                             split_rs=split_random_state, val_size=val_size)
 
     trn_ds = DatasetV1(*extract_subset(input_data, 'train', 0.4), initial_min_inv=min_inv, aug_type=aug_type,
-                       transform_prob=aug_prob)
+                       transform_prob=aug_prob, opt=opt)
 
     train_stats = None
     train_set = create_datasets_test_Exact(None, min_inv=0.4, state='train', norm=norm, input_data=input_data,
