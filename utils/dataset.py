@@ -676,7 +676,7 @@ def shuffle_patients(input_data, signal_split=False):
 
 
 def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal_split=False,
-               split_rs=-1, val_size=0.2):
+               split_rs=-1, val_size=0.2, augment=False):
     """
     Remove data points which have percentage of zeros greater than p_thr
     :param input_data:
@@ -689,7 +689,7 @@ def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal
     """
     # for set_name in ['val', 'test', 'train']:
         # input_data = remove_empty_data(input_data, set_name, p_thr)
-    if to_norm:
+    if to_norm or augment:
         input_data = normalize(input_data, to_framemax=False)
     if shffl_patients or signal_split:
         input_data = shuffle_patients(input_data, signal_split=signal_split)
@@ -1026,7 +1026,7 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     #     input_data[f'data_{set_name}'] = np.random.rand(len(input_data[f'data_{set_name}']), 43,256,256)
 
     input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split,
-                            split_rs=split_random_state, val_size=val_size)
+                            split_rs=split_random_state, val_size=val_size, augment=aug_type != 'none')
 
     trn_ds = DatasetV1(*extract_subset(input_data, 'train', 0.4), initial_min_inv=min_inv, aug_type=aug_type,
                        transform_prob=aug_prob, opt=opt)
