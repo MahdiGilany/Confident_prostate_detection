@@ -60,6 +60,9 @@ def train(opt):
         # Employ semi-supervised learning after forget-rate reaches the peak value
         # trn_ds.n_views = opt.train.n_views if epoch >= opt.train.coteaching.num_gradual else 1
 
+        # if epoch==40:
+        #     trn_ds.rnd_patch=True
+
         # Training
         model.train(epoch, trn_dl, writer=writer)
 

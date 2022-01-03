@@ -40,15 +40,15 @@ backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
 #backbone: [ densenet, densenet ]
 #backbone: [ unet_modf, unet_modf ]
 #backbone: [ Classifier3L_2D, Classifier3L_2D ]  # SimConv4 Inception resnet_ucr Classifier3L
-exp_name: coteaching_semi
+exp_name: coteaching
 exp_suffix: ''
 test_batch_size: 32
 train_batch_size:  32
 lr: 1e-4
 normalize_input: none
 temperature: .5
-aug_type: ['Flip','Rotate', 'ShearX','ShearY']
-#aug_type: 'none'
+#aug_type: ['Flip','Rotate', 'ShearX','ShearY']
+aug_type: 'none'
 aug_prob: 0.2
 unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
 loss_name: 'ce'  # 'gce'
@@ -57,6 +57,10 @@ min_inv: .7
 core_wise:
   activation: False
   num_gradual: 30
+
+random_patch:
+  activation: False
+  patch_siz: 32
 
 train:
   loss_coefficients: [ 1., 0.1 ]

@@ -31,7 +31,7 @@ def ResNet10_ViTv2(num_classes=2, in_channels=1):
         num_classes=num_classes,
         hidden_dim=64,
         attn_key_dim=64,
-        patch_embedder='resnet_10_FFT'
+        # patch_embedder='resnet_10_FFT'
     )
 
     return model

@@ -100,6 +100,9 @@ class DatasetV1(torch.utils.data.Dataset):
         self.n_neighbor = n_neighbor
         self.make_dataset()
         self.index = np.arange(len(self.data))
+        self.rnd_patch = opt.random_patch.activation
+        self.patch_siz = opt.random_patch.patch_siz
+        self.find_noPatches()
         self.corewis = opt.core_wise.activation
         ##todo corelen is not neccessarily the same for other datasets
         self.curr_core_len = [self.core_len[0]]*int(self.label.size(0)/self.core_len[0])
@@ -124,6 +127,10 @@ class DatasetV1(torch.utils.data.Dataset):
         if self.corewis:
             x, y, z, inv, loss_weight = self.getcore_by_index(index)
             return x, y, z, inv, loss_weight
+        elif self.rnd_patch:
+            x, y, z, loss_weight = self.getrnditem_by_index(index)
+            index = np.array(index)
+            return x, y, z, index, loss_weight
 
         x, y, z, loss_weight = self.getitem_by_index(index)
         index = np.array(index)
@@ -189,7 +196,6 @@ class DatasetV1(torch.utils.data.Dataset):
         st_idx = cor_cumsum[index-1] if index!=0 else 0
         end_idx = cor_cumsum[index]
 
-        ##todo squeeze?
         x = self.data[st_idx:end_idx]
         x = x.astype('float32')
         y = self.label[st_idx]
@@ -197,6 +203,41 @@ class DatasetV1(torch.utils.data.Dataset):
         inv = self.inv[st_idx]
         loss_weight = np.repeat(1, x.shape[0]).astype('float32') if not isinstance(index, int) else 1
         return x, y, z, inv, loss_weight
+
+    def getrnditem_by_index(self, index):
+        ##todo not all cores have the same length in other datasets
+        # finding the core that data[index] resides in it. offset is the index of that core.
+        offset = self.curr_core_len[0]*(index//self.curr_core_len[0])
+
+        # randomly choosing n patches from n*(number of frames in a core) possible patches by index
+        patch_nums = np.random.choice(self.curr_core_len[0]*self.patch_perFrame, self.patch_perFrame, replace=False)
+        no_frame = patch_nums//self.patch_perFrame
+        no_patchInFrame = patch_nums%self.patch_perFrame
+
+        # the output data that contains all random patches
+        x = np.zeros_like(self.data[index])
+        x = rearrange(x, 'c (h p1) (w p2) -> (h w) c p1 p2', p1=self.patch_siz, p2=self.patch_siz)
+        for i in range(self.patch_perFrame):
+            no_framei = no_frame[i]
+            no_patchInFramei = no_patchInFrame[i]
+            rearranged_d = rearrange(self.data[no_framei+offset, ...], 'c (h p1) (w p2) -> (h w) c p1 p2',
+                                     p1=self.patch_siz, p2=self.patch_siz)
+            x[i, ...] = rearranged_d[no_patchInFramei, ...]
+
+
+        x = rearrange(x, '(h w) c p1 p2 -> c (h p1) (w p2)', h=self.no_hPatches, w=self.no_wPatches)
+        x = x.astype('float32')
+        y = self.label[index]
+        z = self.location[index]
+        loss_weight = np.repeat(1, x.shape[0]).astype('float32') if not isinstance(index, int) else 1
+        return x, y, z, loss_weight
+
+    def find_noPatches(self,):
+        h, w = self.data[0, 0, ...].shape
+        no_hPatches, no_wPatches = h // self.patch_siz, w // self.patch_siz
+        self.patch_perFrame = no_hPatches*no_wPatches
+        self.no_hPatches = no_hPatches
+        self.no_wPatches = no_wPatches
 
     def _filter(self, key, condition):
         return self.data_dict[key][condition]
