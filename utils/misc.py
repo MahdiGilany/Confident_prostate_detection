@@ -353,7 +353,8 @@ def load_matlab(filename, dynmc=False):
 
     if not dynmc:
         try:
-            return mat73.loadmat(filename)
+            dset = mat73.loadmat(filename)
+            return dset
         except:
             with open(filename, 'rb') as fp:
                 return matlab.loadmat(fp, struct_as_record=False, squeeze_me=True)

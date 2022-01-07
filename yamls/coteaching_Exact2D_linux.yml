@@ -18,11 +18,11 @@ paths: # 'exp_name' will be replaced by actual experiment name
   self_train_checkpoint: 'ckpt2/inception/SelfTime/ProstateTeUS/magnitude_warp_time_warp/0.2_3C/0/backbone_best.tar'
 
 data_source:
-  dataset: Exact_patched #Exact2D_286x15
+  dataset: Exact_allframes #Exact_patched #Exact2D_286x15
   data_root: /home/mgilani/data/Exact # /home/mgilani/sshfs/data
-  train_set:  Exact_UVA_patches_400_100_100_10-08-2021.mat # Exact_UVA_patches_400_100_100_Birthday2021_dynamic.mat
+  train_set: Exact_UVA_patches_400_100_100_5frames11patches_Jan-03-2022.mat # Exact_UVA_patches_400_100_100_10-08-2021.mat # Exact_UVA_patches_400_100_100_Birthday2021_dynamic.mat
   # ExactV2_withInv_D3_ds5_all_2021-06-10.mat # BKcomp_D3_ds5_all_2021-29-7.mat # BKcomp_D1_ds5_all_2021-2-7.mat
-  test_set:  Exact_UVA_patches_400_100_100_10-08-2021.mat # Exact_UVA_patches_400_100_100_Birthday2021_dynamic.mat
+  test_set: Exact_UVA_patches_400_100_100_5frames11patches_Jan-03-2022.mat # Exact_UVA_patches_400_100_100_10-08-2021.mat # Exact_UVA_patches_400_100_100_Birthday2021_dynamic.mat
   # ExactV2_withInv_D3_ds5_all_2021-06-10.mat # BKcomp_D3_ds5_all_2021-29-7.mat # BKcomp_D1_ds5_all_2021-2-7.mat
   unlabelled_set: none #unlabelled/BK_RF_P1_140_balance__20210203-175808_unsup.npy
   IDloading_dynmc: False
@@ -45,7 +45,7 @@ exp_suffix: ''
 test_batch_size: 32
 train_batch_size:  32
 lr: 1e-4
-normalize_input: none
+normalize_input: mean0var1 #'none'  #to0-1
 temperature: .5
 #aug_type: ['Flip','Rotate', 'ShearX','ShearY']
 aug_type: 'none'

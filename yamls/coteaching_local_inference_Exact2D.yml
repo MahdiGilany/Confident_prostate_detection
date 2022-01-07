@@ -37,7 +37,7 @@ backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
 #backbone: [ densenet, densenet ]
 #backbone: [ unet_modf, unet_modf ]
 #backbone: [ Classifier3L_2D, Classifier3L_2D ]  # SimConv4 Inception resnet_ucr Classifier3L
-exp_name: coteaching_semi
+exp_name: coteaching
 exp_suffix: ''
 test_batch_size: 32 # 2048 # 2048
 train_batch_size:  32 # 512 # 2048

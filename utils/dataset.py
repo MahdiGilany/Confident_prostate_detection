@@ -562,6 +562,23 @@ def norm_01(x, *args):
     # return (x - x.min()) / (x.max() - x.min())
 
 
+def norm_m0v1(x, *args):
+    transformer = args[3]
+
+    orig_shape = x.shape
+    flattened = x.flatten()[..., np.newaxis]
+    if transformer is None:
+        mean_ = x.mean(axis=(3, 4)).reshape(orig_shape[0], orig_shape[1], orig_shape[2], 1, 1)
+        std_ = x.std(axis=(3, 4)).reshape(orig_shape[0], orig_shape[1], orig_shape[2], 1, 1)
+        new_x = (x - mean_)/std_
+        return new_x
+
+    transfomer_ = transformer.transform(flattened)
+    x = transfomer_[..., 0].reshape(orig_shape)
+
+    return x
+
+
 def norm_framemax(x, max_):
     raise Exception('not correct yet')
     return x/max_
@@ -590,9 +607,13 @@ def stratify_groups(groups, num_time_series, marked_array, mark_low_threshold=.2
     return np.concatenate(row_idx), marked_array
 
 
-def normalize(input_data, to_all_cores=False, to_framemax=False):
+def normalize(input_data, to_all_cores=False, norm=None):
     # _norm = norm_framemax if to_framemax else norm_01
-    _norm = norm_01
+    if norm=='none' or norm=='to0-1':
+        _norm = norm_01
+    elif norm=='mean0var1':
+        _norm = norm_m0v1
+
     for set_name in ['val', 'test', 'train']:
         input_data[f'data_{set_name}'] = np.stack(input_data[f'data_{set_name}'], axis=0)
 
@@ -614,6 +635,9 @@ def normalize(input_data, to_all_cores=False, to_framemax=False):
 
         input_data[f'data_{set_name}'] = _norm(input_data[f'data_{set_name}'].astype('float32'),
                                                min_, max_, frame_max, transformer)
+        # changing the dimensionality for different experiments
+        # input_data[f'data_{set_name}'] = input_data[f'data_{set_name}'][:, :, 0:1,...]
+        # input_data[f'data_{set_name}'] = rearrange(input_data[f'data_{set_name}'], 'b p (c c1) h w -> b (p c) c1 h w', c1=1)
     return input_data
 
 
@@ -716,7 +740,7 @@ def shuffle_patients(input_data, signal_split=False):
     return input_data
 
 
-def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal_split=False,
+def preprocess(input_data, p_thr=.2, norm=None, shffl_patients=False, signal_split=False,
                split_rs=-1, val_size=0.2, augment=False):
     """
     Remove data points which have percentage of zeros greater than p_thr
@@ -730,8 +754,8 @@ def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal
     """
     # for set_name in ['val', 'test', 'train']:
         # input_data = remove_empty_data(input_data, set_name, p_thr)
-    if to_norm or augment:
-        input_data = normalize(input_data, to_framemax=False)
+    if norm!='none' or augment:
+        input_data = normalize(input_data, norm=norm)
     if shffl_patients or signal_split:
         input_data = shuffle_patients(input_data, signal_split=signal_split)
     if split_rs >= 0:
@@ -739,7 +763,7 @@ def preprocess(input_data, p_thr=.2, to_norm=False, shffl_patients=False, signal
     return input_data
 
 
-def concat_data(included_idx, data, label, core_name, inv, patient_id, roi_coors, stn):
+def concat_data(included_idx, data, label, core_name, inv, patient_id, roi_coors, stn, opt=None):
     """ Concatenate data from different cores specified by 'included_idx' """
     core_counter = 0
     data_c, label_c, core_name_c, inv_c, core_len, core_id_c, patient_id_c, frame_id_c, roi_coors_c, stn_c = \
@@ -767,7 +791,8 @@ def concat_data(included_idx, data, label, core_name, inv, patient_id, roi_coors
             core_counter += 1
     # roi_coors_c = np.concatenate(roi_coors_c)
     data_c = np.concatenate(data_c).astype('float32')
-    data_c = fix_dim(data_c, 'patch')
+    dataset_name = 'patch' if opt is None else opt.data_source.dataset
+    data_c = fix_dim(data_c, dataset_name)
     label_c = to_categorical(np.concatenate(label_c))
     core_name_c = to_categorical(np.concatenate(core_name_c))
     inv_c = np.concatenate(inv_c)
@@ -1066,10 +1091,10 @@ def create_datasets_Exact(dataset_name, data_file, norm=None, min_inv=0.4, aug_t
     # for set_name in ['train', 'val', 'test']:
     #     input_data[f'data_{set_name}'] = np.random.rand(len(input_data[f'data_{set_name}']), 43,256,256)
 
-    input_data = preprocess(input_data, to_norm=to_norm, shffl_patients=False, signal_split=signal_split,
+    input_data = preprocess(input_data, norm=norm, shffl_patients=False, signal_split=signal_split,
                             split_rs=split_random_state, val_size=val_size, augment=aug_type != 'none')
 
-    trn_ds = DatasetV1(*extract_subset(input_data, 'train', 0.4), initial_min_inv=min_inv, aug_type=aug_type,
+    trn_ds = DatasetV1(*extract_subset(input_data, 'train', 0.4, opt=opt), initial_min_inv=min_inv, aug_type=aug_type,
                        transform_prob=aug_prob, opt=opt)
 
     train_stats = None
@@ -1269,6 +1294,10 @@ def fix_dim(data, dataset_name):
         tmp = data[:, np.newaxis, ...]
         # tmp = np.repeat(tmp, 3, axis=1)
         return tmp
+    elif 'allframes' in dataset_name:
+        tmp = data
+        # tmp = np.repeat(tmp, 3, axis=1)
+        return tmp
     else:
         tmp = data[:, np.newaxis, ...]
         # tmp = np.repeat(tmp, 3, axis=1)
@@ -1333,7 +1362,7 @@ def split_patch(signal_test, label_test, name_tst, sig_inv_test, corelen, patch_
     return signal, label, name, sig_inv, corelen_
 
 
-def extract_subset(input_data, set_name, min_included_inv=.4, to_concat=True, core_list=None):
+def extract_subset(input_data, set_name, min_included_inv=.4, to_concat=True, core_list=None, opt=None):
     """
     Extract subset 'set_name' from input_data using 'min_inv'
     :param input_data: loaded from pkl or matlab file
@@ -1359,7 +1388,7 @@ def extract_subset(input_data, set_name, min_included_inv=.4, to_concat=True, co
         # included_idx = np.bitwise_and(included_idx, np.isin(core_id, core_list))
         raise NotImplemented
     if to_concat:
-        return concat_data(included_idx, data, label, core_name, inv, patient_id, None, None)
+        return concat_data(included_idx, data, label, core_name, inv, patient_id, None, None, opt=opt)
     else:
         raise NotImplemented
         # core_len = [len(_) for _ in data]
