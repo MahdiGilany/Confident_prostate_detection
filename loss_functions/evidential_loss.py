@@ -87,11 +87,15 @@ def edl_mse_loss(output, target, epoch_num, num_classes, annealing_step, reducti
     return torch.mean(loss)
 
 
-def edl_log_loss(output, target, epoch_num, num_classes, annealing_step, device):
+def edl_log_loss(output, target, epoch_num, num_classes, annealing_step, reduction='none', device=None):
+    if device is None:
+        device = torch.device(f'cuda:{output.get_device()}' if torch.cuda.is_available() else 'cpu')
     evidence = relu_evidence(output)
     alpha = evidence + 1
-    loss = torch.mean(edl_loss(torch.log, target, alpha, epoch_num, num_classes, annealing_step, device))
-    return loss
+    loss = edl_loss(torch.log, target, alpha, epoch_num, num_classes, annealing_step, device)
+    if reduction == 'none':
+        return loss
+    return torch.mean(loss)
 
 
 def edl_digamma_loss(output, target, epoch_num, num_classes, annealing_step, reduction='none', device=None):
@@ -109,8 +113,9 @@ class Edl_losses(torch.nn.Module):
     def __init__(self, loss_name, num_classes):
         super(Edl_losses, self).__init__()
         if loss_name == 'edl_mse_loss':
-            self.loss = edl_mse_loss
+            # self.loss = edl_mse_loss
             # self.loss = edl_digamma_loss
+            self.loss = edl_log_loss
         # else:
         #     self.loss = edl_log_loss
         self.num_classes = num_classes

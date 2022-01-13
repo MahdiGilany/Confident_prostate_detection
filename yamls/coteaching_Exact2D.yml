@@ -32,7 +32,7 @@ data_source:
 
 # Tunable (iteratively) hyper-parameters
 seed: 0
-n_epochs: 100
+n_epochs: 110
 epoch_start_correct: 1000
 epoch_label_anneal: 1000 # enabling label refinement Mahdi version
 total_iters: 20000
@@ -53,9 +53,9 @@ temperature: .5
 aug_type: 'none'
 aug_prob: 0.2
 unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
-loss_name: 'edl'  # 'gce'
+loss_name: 'edl' # # 'gce'
 min_inv: .7
-uncertainty_thr: 0.3
+uncertainty_thr: 0.3 #
 
 core_wise:
   activation: False

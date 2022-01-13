@@ -76,13 +76,18 @@ def compute_metrics(predicted_involvement, true_involvement,
     if edl:
         core_predictions_unc = np.array([item > threshold for item in predicted_involvement_unc])
         core_labels_unc = np.array([core_labels[i] for i in range(len(pred_inv_wNan))
-                                              if not np.isnan(pred_inv_wNan[i])])
+                                    if not np.isnan(pred_inv_wNan[i])])
+        true_involvement_unc = np.array([true_involvement[i] for i in range(len(pred_inv_wNan))
+                                    if not np.isnan(pred_inv_wNan[i])])
         cfs_mtx_unc = cm_score(confusion_matrix(core_labels_unc, core_predictions_unc))
         metrics_unc = get_metrics(cfs_mtx_unc)
         for metric in ['acc_b', 'sen', 'spe']:
             scores[metric+'-uncrtan'] = metrics_unc[metric](core_labels_unc, core_predictions_unc)
-        scores['corr-uncrtan'] = np.corrcoef(predicted_involvement_unc, true_involvement)[0, 1]
-        scores['auc-uncrtan'] = metrics_unc['auc'](core_labels_unc, predicted_involvement_unc)
+        scores['corr-uncrtan'] = np.corrcoef(predicted_involvement_unc, true_involvement_unc)[0, 1]
+        try:
+            scores['auc-uncrtan'] = metrics_unc['auc'](core_labels_unc, predicted_involvement_unc)
+        except:
+            scores['auc-uncrtan'] = np.nan
 
     # andlabels = np.logical_and(predictions, labels)
     # norLabels = len(np.where(predictions + labels == 0)[0])
