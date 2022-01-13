@@ -52,10 +52,14 @@ def get_metrics(cfs_mtx=None):
 
 
 def compute_metrics(predicted_involvement, true_involvement,
-                    metric_list=('auc', 'auprc', 'f1', 'mcc', 'sen', 'spe', 'pre', 'acc', 'acc_b'),
-                    current_epoch=None, verbose=False, scores=None, threshold=0.5) -> dict:
+                    metric_list=('auc', 'auprc', 'f1', 'sen', 'spe', 'acc', 'acc_b'),
+                    current_epoch=None, verbose=False, scores=None, threshold=0.5, edl=False) -> dict:
+    predicted_involvement_nounc = predicted_involvement[0]
+    pred_inv_wNan = predicted_involvement[2]
+    predicted_involvement_unc = np.array([pred_inv_wNan[i] for i in range(len(pred_inv_wNan))
+                                          if not np.isnan(pred_inv_wNan[i])])
 
-    core_predictions = np.array([item > threshold for item in predicted_involvement])
+    core_predictions = np.array([item > threshold for item in predicted_involvement_nounc])
     core_labels = np.array([item > 0 for item in true_involvement])
 
     cfs_mtx = cm_score(confusion_matrix(core_labels, core_predictions))  # tn, fp, fn, tp
@@ -64,9 +68,21 @@ def compute_metrics(predicted_involvement, true_involvement,
     scores = {} if scores is None else scores
     for metric in metric_list:
         scores[metric] = metrics[metric](core_labels, core_predictions)
-    scores['corr'] = np.corrcoef(predicted_involvement, true_involvement)[0, 1]
-    scores['mae'] = (np.abs(predicted_involvement - true_involvement)).sum()
-    scores['auc'] = metrics['auc'](core_labels, predicted_involvement)
+    scores['corr'] = np.corrcoef(predicted_involvement_nounc, true_involvement)[0, 1]
+    scores['mae'] = (np.abs(predicted_involvement_nounc - true_involvement)).sum()
+    scores['auc'] = metrics['auc'](core_labels, predicted_involvement_nounc)
+
+
+    if edl:
+        core_predictions_unc = np.array([item > threshold for item in predicted_involvement_unc])
+        core_labels_unc = np.array([core_labels[i] for i in range(len(pred_inv_wNan))
+                                              if not np.isnan(pred_inv_wNan[i])])
+        cfs_mtx_unc = cm_score(confusion_matrix(core_labels_unc, core_predictions_unc))
+        metrics_unc = get_metrics(cfs_mtx_unc)
+        for metric in ['acc_b', 'sen', 'spe']:
+            scores[metric+'-uncrtan'] = metrics_unc[metric](core_labels_unc, core_predictions_unc)
+        scores['corr-uncrtan'] = np.corrcoef(predicted_involvement_unc, true_involvement)[0, 1]
+        scores['auc-uncrtan'] = metrics_unc['auc'](core_labels_unc, predicted_involvement_unc)
 
     # andlabels = np.logical_and(predictions, labels)
     # norLabels = len(np.where(predictions + labels == 0)[0])

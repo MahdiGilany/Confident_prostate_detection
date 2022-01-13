@@ -8,7 +8,8 @@ def get_loss_function(loss_name, num_classes, train_loader=None, **kwargs):
         'nfl_rce': NFLandRCE(alpha=1., beta=1., gamma=1, num_classes=num_classes),
         'gce': GeneralizedCrossEntropy(num_classes),
         'fl': FocalLoss(gamma=2.),
-        'iso': IsoMaxLossSecondPart()
+        'iso': IsoMaxLossSecondPart(),
+        'edl': Edl_losses('edl_mse_loss', num_classes),
         # 'nlnl': NLNL(train_loader, num_classes)
     }
     opt = kwargs['opt'] if 'opt' in kwargs else None

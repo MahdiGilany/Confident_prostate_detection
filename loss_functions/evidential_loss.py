@@ -118,4 +118,4 @@ class Edl_losses(torch.nn.Module):
     def forward(self, output, target, epoch_num, reduction='none'):
         if len(target.shape) == 1:
             target = F.one_hot(target, num_classes=self.num_classes)
-        return self.loss(output, target, epoch_num, self.num_classes, 10, reduction=reduction).reshape(-1)
+        return self.loss(output, target, epoch_num, self.num_classes, 50, reduction=reduction).reshape(-1)

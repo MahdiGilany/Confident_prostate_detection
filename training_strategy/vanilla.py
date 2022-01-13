@@ -84,18 +84,24 @@ class Model:
             self.device = device
         outputs = []
         entropic_scores = []
+        uncertainty = []
         total = correct = 0
 
+        ##todo no classes is not always 2
         cm = np.zeros((2,2))
         # apply model on test signals
         for batch in tst_dl:
             x_raw, y_batch, n_batch, *_ = [t.to(self.device) for t in batch]
-            pred = self.infer(x_raw, n_batch, mode='test')
-            pred = F.softmax(pred, dim=1)
+            out1 = self.infer(x_raw, n_batch, mode='test')
+            pred = F.softmax(out1, dim=1)
 
             probabilities = pred  # torch.nn.Softmax(dim=1)(pred)
             entropies = -(probabilities * torch.log(probabilities)).sum(dim=1)
             entropic_scores.append((-entropies).cpu().numpy())
+
+            alpha = F.relu(out1) + 1
+            u = 2. / torch.sum(alpha, dim=1, keepdim=True).reshape(-1)
+            uncertainty.append(u.cpu().numpy())
 
             outputs.append(pred.cpu().numpy())
             total += y_batch.size(0)
@@ -106,8 +112,9 @@ class Model:
         tn, fp, fn, tp = cm.ravel()
         acc_sb = (tp/(tp+fn) + tn/(tn+fp))/2.0
         outputs = np.concatenate(outputs)
+        uncertainty = np.concatenate(uncertainty)
         entropic_scores = np.concatenate(entropic_scores)
-        return outputs, entropic_scores, correct / total, acc_sb
+        return outputs, uncertainty, entropic_scores, correct / total, acc_sb
 
     def forward_backward_semi_supervised(self, *args, **kwargs):
         pass

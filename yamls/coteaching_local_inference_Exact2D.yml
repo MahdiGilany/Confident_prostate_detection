@@ -49,6 +49,7 @@ unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]
 aug_type: 'none'
 loss_name: 'ce'  # 'gce'
 min_inv: .7
+uncertainty_thr: 0.2
 
 train:
   loss_coefficients: [ 1., 0.1 ]

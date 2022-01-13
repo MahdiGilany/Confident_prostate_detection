@@ -7,3 +7,4 @@ from .misc import f_score
 from .elr import ELR
 from .isomax import IsoMaxLossSecondPart
 from .simclr import info_nce_loss
+from .evidential_loss import Edl_losses

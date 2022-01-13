@@ -100,11 +100,11 @@ def plot_confusion_matrix(y_true, y_pred, classes,
     return ax
 
 
-def net_interpretation(predicted_label, predicted_label2, patient_id, involvement, gleason_score, result_dir=None,
+def net_interpretation(predicted_label, patient_id, involvement, gleason_score, result_dir=None,
                        ood=None,
                        cct=(0.2, 0.6, 1), cbt=(0, 1, 0.6), cf=(1, 0.2, 0.6),
                        current_epoch=None, set_name='Test', writer=None, scores: dict = None, threshold=0.5,
-                       plotting=False):
+                       plotting=False, edl=False):
     """
 
     :param predicted_label:
@@ -123,6 +123,16 @@ def net_interpretation(predicted_label, predicted_label2, patient_id, involvemen
     :param plotting:
     :return:
     """
+    predicted_label_nounc = predicted_label[0]
+    # in case edl is not used
+    predicted_label_unc = predicted_label[1]
+    pred_inv_wNan = predicted_label[1]
+
+    if edl:
+        pred_inv_wNan = predicted_label[2]
+        predicted_label_unc = np.array([pred_inv_wNan[i] for i in range(len(pred_inv_wNan))
+                                              if not np.isnan(pred_inv_wNan[i])])
+
 
     # predicted_label = np.array([item > 0.5 for item in predicted_label])
     true_label = np.array([item > 0 for item in involvement])
@@ -130,7 +140,7 @@ def net_interpretation(predicted_label, predicted_label2, patient_id, involvemen
     current_epoch_str = '' if current_epoch is None else f'_{current_epoch}'
     # auc = roc_auc_score(np.array(true_label), PredictedLabel)
     # print("AUC: %f", auc)
-    predicted_label_th = np.array(predicted_label)
+    predicted_label_th = np.array(predicted_label_nounc)
     predicted_label_th[predicted_label_th > threshold] = 1
     predicted_label_th[predicted_label_th <= threshold] = 0
     # plot_confusion_matrix(true_label, predicted_label_th, classes=['Benign', 'Cancer'], title='Confusion matrix')
@@ -209,7 +219,7 @@ def net_interpretation(predicted_label, predicted_label2, patient_id, involvemen
     ood_normalized = ood_sum / ood_sum.sum()
 
     fig2 = plt.figure(2)
-    ax2 = sns.scatterplot(x=involvement, y=predicted_label, size=ood_normalized, legend=False)
+    ax2 = sns.scatterplot(x=involvement, y=predicted_label_nounc, size=ood_normalized, legend=False)
     diag = np.arange(0, 1, .05)
     sns.lineplot(x=diag, y=diag, color='r', ax=ax2)
     ax2.axvspan(-.1, 0.1, -.1, .5, alpha=.2, facecolor='lightgreen')
@@ -230,25 +240,85 @@ def net_interpretation(predicted_label, predicted_label2, patient_id, involvemen
     if plotting:
         plt.show()
 
+#############################################################################################
     # new plot based on new way of finding core predictions
-    fig3 = plt.figure(3)
-    ax3 = sns.scatterplot(x=involvement, y=predicted_label2, size=ood_normalized, legend=False)
+    predicted_label_th_unc = np.copy(np.array(pred_inv_wNan))
+    predicted_label_th_unc[predicted_label_th_unc > threshold] = 1
+    predicted_label_th_unc[predicted_label_th_unc <= threshold] = 0
+
+    andlabels_unc = np.logical_and(predicted_label_th_unc, true_label)
+
+    label = []
+    cmap = [cf if True else [0, 0, 1] for i in range(len(true_label))]
+
+    for i in range(len(true_label)):
+        if andlabels_unc[i] == 1:
+            cmap[i] = cct
+        elif (predicted_label_th_unc[i] + true_label[i]) == 0:
+            cmap[i] = cbt
+        else:
+            cmap[i] = cf
+        if np.isnan(pred_inv_wNan[i]):
+            cmap[i] = (.9,.9,.9)
+
+    cmap = np.array(cmap)
+    cmaps = np.zeros((len(patients), maxc, 3), dtype=float)
+    for ip in range(len(patients)):
+        indxip = indx[ip]
+        inv[ip, :len(indxip)] = Invs[indxip]
+        cmaps[ip, :len(indxip)] = cmap[indxip]
+        label.append(gs[indxip])
+        for i in range(len(label[ip])):
+            if label[ip][i] == 'Benign':
+                inv[ip, i] = 50
+                label[ip][i] = '-'
+            if label[ip][i] == 'FB':
+                inv[ip, i] = 50
+                label[ip][i] = '-'
+
+    fig3, ax3 = plt.subplots()
+    fig3.set_size_inches(18.5/2, 10.5/2)
+
+    for i in range(maxc):
+        ax3.bar(np.arange(len(patients)), inv[:, i].tolist(), 0.7, bottom=barbase[:, i], color=cmaps[:, i])
+        ax3.EdgeColor = 'k'
+    plt.xticks(np.arange(len(patients)), patients.astype(int))
+    plt.xlabel('Patient No.')
+
+    width = np.array([p.get_width() for p in ax3.patches][0]).squeeze()
+    joblblpos = inv / 2 + barbase
+    for k1 in range(inv.shape[0]):
+        for k2 in range(inv.shape[1]):
+            plt.text(k1-width/2., joblblpos[k1, k2], label[k1][k2] if inv[k1, k2] != 0 else '')
+
+
+    fig4 = plt.figure(4)
+    inv_unc = np.array([involvement[i] for i in range(len(pred_inv_wNan))
+              if not np.isnan(pred_inv_wNan[i])])
+    ood_unc = np.array([ood_normalized[i] for i in range(len(pred_inv_wNan))
+              if not np.isnan(pred_inv_wNan[i])])
+    if len(inv_unc)==0:
+        inv_unc = [1.]
+        predicted_label_unc = [0.]
+        ood_unc = ood_normalized[0]
+    ax4 = sns.scatterplot(x=inv_unc, y=predicted_label_unc, size=ood_unc, legend=False)
     diag = np.arange(0, 1, .05)
-    sns.lineplot(x=diag, y=diag, color='r', ax=ax3)
-    ax3.axvspan(-.1, 0.1, -.1, .5, alpha=.2, facecolor='lightgreen')
-    ax3.axvspan(-.1, 0.1, .51, 1., alpha=.2, facecolor='red')
-    ax3.axvspan(0.11, 1.1, -.1, .5, alpha=.2, facecolor='grey')
-    ax3.axvspan(0.11, 1.1, .51, 1., alpha=.2, facecolor='moccasin')
-    ax3.axvline(x=.105, linewidth=.6, linestyle='--', color='black')
-    ax3.axhline(y=.505, linewidth=.6, linestyle='--', color='black')
-    ax3.axis('square')
-    ax3.set(ylim=[-.1, 1.1], xlim=[-.1, 1.1])
+    sns.lineplot(x=diag, y=diag, color='r', ax=ax4)
+    ax4.axvspan(-.1, 0.1, -.1, .5, alpha=.2, facecolor='lightgreen')
+    ax4.axvspan(-.1, 0.1, .51, 1., alpha=.2, facecolor='red')
+    ax4.axvspan(0.11, 1.1, -.1, .5, alpha=.2, facecolor='grey')
+    ax4.axvspan(0.11, 1.1, .51, 1., alpha=.2, facecolor='moccasin')
+    ax4.axvline(x=.105, linewidth=.6, linestyle='--', color='black')
+    ax4.axhline(y=.505, linewidth=.6, linestyle='--', color='black')
+    ax4.axis('square')
+    ax4.set(ylim=[-.1, 1.1], xlim=[-.1, 1.1])
 
     if writer:
         # img = plot_to_image(fig4)
         writer.add_figure(f'{set_name}/core_acc', fig1, global_step=current_epoch)
         writer.add_figure(f'{set_name}/core_inv_threshold', fig2, global_step=current_epoch)
-        writer.add_figure(f'{set_name}/core_inv_mean', fig3, global_step=current_epoch)
+        writer.add_figure(f'{set_name}/core_acc_mean', fig3, global_step=current_epoch)
+        writer.add_figure(f'{set_name}/core_inv_mean', fig4, global_step=current_epoch)
 
     plt.close('all')
 

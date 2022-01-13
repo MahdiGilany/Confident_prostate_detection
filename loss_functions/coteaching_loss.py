@@ -40,15 +40,18 @@ def loss_coteaching(
     """
     loss_func = kwargs['loss_func'] if 'loss_func' in kwargs.keys() else [F.cross_entropy, F.cross_entropy]
     loss_func1, loss_func2 = loss_func
+    epoch = kwargs['epoch']
 
-    # loss_1 = F.cross_entropy(y_1, t, reduction='none')
-    loss_1 = IsoMaxLossSecondPart()(y_1, t, reduction='none')
+    # loss_1 = F.cross_entropy(y_1, t, red uction='none')
+    # loss_1 = IsoMaxLossSecondPart()(y_1, t, reduction='none')
+    loss_1 = loss_func1(y_1, t, reduction='none', epoch_num=epoch)
     # loss_1 = f_score(y_1, t, reduction='none')
     ind_1_sorted = np.argsort(loss_1.data.cpu())
     loss_1_sorted = loss_1[ind_1_sorted]
 
     # loss_2 = F.cross_entropy(y_2, t, reduction='none')
-    loss_2 = IsoMaxLossSecondPart()(y_2, t, reduction='none')
+    # loss_2 = IsoMaxLossSecondPart()(y_2, t, reduction='none')
+    loss_2 = loss_func2(y_2, t, reduction='none', epoch_num=epoch)
     # loss_2 = f_score(y_2, t, reduction='none')
     ind_2_sorted = np.argsort(loss_2.data.cpu())
 
@@ -73,8 +76,10 @@ def loss_coteaching(
     # ind_1_update = random_replacing(t, ind_1_update)
     # ind_2_update = random_replacing(t, ind_2_update)
 
-    loss_1_update = IsoMaxLossSecondPart()(y_1[ind_2_update], t[ind_2_update], reduction='none')
-    loss_2_update = IsoMaxLossSecondPart()(y_2[ind_1_update], t[ind_1_update], reduction='none')
+    # loss_1_update = IsoMaxLossSecondPart()(y_1[ind_2_update], t[ind_2_update], reduction='none')
+    # loss_2_update = IsoMaxLossSecondPart()(y_2[ind_1_update], t[ind_1_update], reduction='none')
+    loss_1_update = loss_func1(y_1[ind_2_update], t[ind_2_update], reduction='none', epoch_num=epoch)
+    loss_2_update = loss_func2(y_2[ind_1_update], t[ind_1_update], reduction='none', epoch_num=epoch)
 
     # loss_1_update = F.cross_entropy(y_1[ind_2_update], t[ind_2_update], reduction='none')
     # loss_2_update = F.cross_entropy(y_2[ind_1_update], t[ind_1_update], reduction='none')
@@ -165,7 +170,7 @@ def get_loss_coteaching(loss_name, num_classes, use_plus=False, relax=False, **k
     cot_func = loss_coteaching_plus if use_plus else loss_coteaching
 
     def wrapper(*args, **kwargs):
-        return cot_func(*args, **kwargs, loss_func=loss_func, relax=relax, num_classes=num_classes)
+        return cot_func(*args, **kwargs, loss_name=loss_name, loss_func=loss_func, relax=relax, num_classes=num_classes)
 
     return wrapper
 

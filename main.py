@@ -31,7 +31,7 @@ def train(opt):
     tst_ds = test_set[0]
 
     # trn_ds is for training and trn_ds2 is for testing on train set
-    trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True, pin_memory=True,
+    trn_dl = create_loader(trn_ds, bs=opt.train_batch_size, jobs=opt.num_workers, add_sampler=True, pin_memory=False,
                            corewise=opt.core_wise.activation)##todo check pin memory
     trn_dl2 = create_loaders_test(trn_ds2, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=False)
     val_dl = create_loaders_test(val_ds, bs=opt.test_batch_size, jobs=opt.num_workers, pin_memory=False)
@@ -138,16 +138,20 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
 
     # Evaluation
-    predictions, ood_scores, acc_s, acc_sb = model.eval(tst_dl, net_index=1)
+    predictions, uncertainty, ood_scores, acc_s, acc_sb = model.eval(tst_dl, net_index=1)
+
+    # if opt.loss_name!='edl':
+    #     uncertainty = np.zeros_like(uncertainty)
 
     # Infer core-wise predictions
-    predicted_involvement_thrd, predicted_involvement_mean, ood, prediction_maps = infer_core_wise(predictions, core_len, roi_coors, ood_scores)
+    predicted_involvement, ood, prediction_maps =\
+        infer_core_wise(predictions, uncertainty, core_len, roi_coors, opt.uncertainty_thr, ood_scores)
 
     # Calculating & logging metrics
     scores = {'acc_s': acc_s, 'acc_sb': acc_sb}
-    scores = compute_metrics(predicted_involvement_thrd, true_involvement,
+    scores = compute_metrics(predicted_involvement, true_involvement,
                              current_epoch=current_epoch, verbose=True, scores=scores,
-                             threshold=opt.core_th)
+                             threshold=opt.core_th, edl=opt.loss_name == 'edl')
 
     # import pylab as plt
     # heatmaps_dir = opt.paths.result_dir + f'_heatmaps/{state}'
@@ -155,10 +159,10 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # for i, pm in enumerate(prediction_maps):
     #     plt.imsave(f'{heatmaps_dir }/{i}_{true_involvement[i]:.2f}.png', pm, vmin=0, vmax=1, cmap='gray')
 
-    net_interpretation(predicted_involvement_thrd, predicted_involvement_mean, patient_id_bk,
+    net_interpretation(predicted_involvement, patient_id_bk,
                        true_involvement, gs_bk, opt.paths.result_dir,
                        ood=ood, current_epoch=current_epoch, set_name=set_name,
-                       writer=writer, scores=scores, threshold=opt.core_th)
+                       writer=writer, scores=scores, threshold=opt.core_th, edl=opt.loss_name == 'edl')
 
     # if set_name.lower() == 'train':
     #     predicted_involvement = np.concatenate(
@@ -170,10 +174,10 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
 
     # correct labels if the difference between predicted and true involvements satisfies the threshold
     if (set_name.lower() == 'train') and (trn_ds is not None) and (current_epoch > opt.epoch_start_correct):
-        trn_ds.correct_labels(ids[0], core_len, predictions, true_involvement, predicted_involvement_thrd, opt.correcting)
+        trn_ds.correct_labels(ids[0], core_len, predictions, true_involvement, predicted_involvement[0], opt.correcting)
 
     if (set_name.lower() == 'train') and (trn_ds is not None) and (current_epoch >= opt.epoch_label_anneal):
-        trn_ds.anneal_label(predictions, core_len, true_involvement, predicted_involvement_thrd,
+        trn_ds.anneal_label(predictions, core_len, true_involvement, predicted_involvement[0],
                             current_epoch-opt.epoch_label_anneal)
 
     # return scores['acc'], predicted_involvement
