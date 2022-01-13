@@ -32,7 +32,7 @@ data_source:
 
 # Tunable (iteratively) hyper-parameters
 seed: 0
-n_epochs: 110
+n_epochs: 100
 epoch_start_correct: 1000
 epoch_label_anneal: 1000 # enabling label refinement Mahdi version
 total_iters: 20000

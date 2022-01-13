@@ -113,9 +113,9 @@ class Edl_losses(torch.nn.Module):
     def __init__(self, loss_name, num_classes):
         super(Edl_losses, self).__init__()
         if loss_name == 'edl_mse_loss':
-            # self.loss = edl_mse_loss
+            self.loss = edl_mse_loss
             # self.loss = edl_digamma_loss
-            self.loss = edl_log_loss
+            # self.loss = edl_log_loss
         # else:
         #     self.loss = edl_log_loss
         self.num_classes = num_classes
