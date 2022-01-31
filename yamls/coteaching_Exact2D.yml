@@ -20,10 +20,12 @@ paths: # 'exp_name' will be replaced by actual experiment name
 data_source:
   dataset: Exact_patched #Exact_allframes #Exact2D_286x15
   data_root: data # /home/mgilani/data/Exact
-  train_set: Exact_UVA_patches_400_100_100_10-08-2021.mat #Exact_UVA_patches_400_100_100_5frames11patches_Jan-03-2022.mat
+#  train_set: Exact_UVA_patches_400_100_100_10-08-2021.mat #Exact_UVA_patches_400_100_100_5frames11patches_Jan-03-2022.mat
+  train_set: Exact_UVA_patches_400_100_100_maskedProstate_01-30-2022.mat
 #  train_set: Exact_UVA_patches_400_100_100_Birthday2021_dynamic.mat
 #   Exact_UVA_patches_400_100_100_11-03-2021_halfsize.mat # ExactV2_withInv_D3_ds5_all_2021-06-10.mat # BKcomp_D3_ds5_all_2021-29-7.mat # BKcomp_D1_ds5_all_2021-2-7.mat
-  test_set: Exact_UVA_patches_400_100_100_10-08-2021.mat # Exact_UVA_patches_400_100_100_5frames11patches_Jan-03-2022.mat
+#  test_set: Exact_UVA_patches_400_100_100_10-08-2021.mat # Exact_UVA_patches_400_100_100_5frames11patches_Jan-03-2022.mat
+  test_set: Exact_UVA_patches_400_100_100_maskedProstate_01-30-2022.mat
 #  test_set: Exact_UVA_patches_400_100_100_Birthday2021_dynamic.mat
 #   Exact_UVA_patches_400_100_100_11-03-2021_halfsize.mat # ExactV2_withInv_D3_ds5_all_2021-06-10.mat # BKcomp_D3_ds5_all_2021-29-7.mat # BKcomp_D1_ds5_all_2021-2-7.mat
   unlabelled_set: none #unlabelled/BK_RF_P1_140_balance__20210203-175808_unsup.npy
@@ -47,7 +49,7 @@ exp_suffix: ''
 test_batch_size: 32 # 2048 # 2048
 train_batch_size:  32 # 512 # 2048
 lr: 1e-4
-normalize_input: 'none' #mean0var1 #to0-1
+normalize_input: mean0var1 #'none' #mean0var1 #to0-1
 temperature: .5
 #aug_type: ['Flip','Rotate', 'ShearX','ShearY']
 aug_type: 'none'
@@ -55,7 +57,7 @@ aug_prob: 0.2
 unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
 loss_name: 'edl' # # 'gce'
 min_inv: .7
-uncertainty_thr: 0.3 #
+uncertainty_thr: 0.2 #
 
 core_wise:
   activation: False

@@ -509,13 +509,14 @@ def remove_empty_data(input_data, set_name, p_thr=.2):
     :return:
     """
     data = input_data[f"data_{set_name}"]
-    s = [(data[i] == 0).sum() for i in range(len(data))]
-    zero_percentage = [s[i] / np.prod(data[i].shape) for i in range(len(data))]
-    include_idx = np.array([i for i, p in enumerate(zero_percentage) if p < p_thr])
-    if len(include_idx) == 0:
-        return input_data
-    if len(include_idx) == len(data):
-        return input_data
+    include_idx = [i for i, p in enumerate(data) if data[i].ndim > 2]
+    # s = [(data[i] == 0).sum() for i in range(len(data))]
+    # zero_percentage = [s[i] / np.prod(data[i].shape) for i in range(len(data))]
+    # include_idx = np.array([i for i, p in enumerate(zero_percentage) if p < p_thr])
+    # if len(include_idx) == 0:
+    #     return input_data
+    # if len(include_idx) == len(data):
+    #     return input_data
 
     for k in input_data.keys():
         if set_name in k:
@@ -544,14 +545,20 @@ def norm_01(x, *args):
     #     x = new_x.reshape(orig_shape[0], 286, 3, 5)
     #     return x
     if transformer is None:
-        # min_ = args[0]
-        # max_ = args[1]
-        x[x > 4] = 4.
-        x[x < -4] = -4.
-        min_ = x.min(axis=(2, 3)).reshape(orig_shape[0],orig_shape[1],1,1)
-        max_ = x.max(axis=(2, 3)).reshape(orig_shape[0],orig_shape[1],1,1)
-        new_x = (x - min_)/(max_ - min_)
-        # new_x = (x - min_)
+        # x[x > 4] = 4.
+        # x[x < -4] = -4.
+
+        # min_ = x.min(axis=(2, 3)).reshape(orig_shape[0],orig_shape[1],1,1)
+        # max_ = x.max(axis=(2, 3)).reshape(orig_shape[0],orig_shape[1],1,1)
+        # new_x = (x - min_)/(max_ - min_)
+
+        for i, d in enumerate(x):
+            x[i][d > 4] = 4.
+            x[i][d < -4] = -4.
+
+        min_ = [d.min(axis=(-2, -1), keepdims=True) for i, d in enumerate(x)]
+        max_ = [d.max(axis=(-2, -1), keepdims=True) for i, d in enumerate(x)]
+        new_x = [(d - min_i) / (max_i - min_i) for d, min_i, max_i in zip(x, min_, max_)]
         return new_x
 
     transfomer_ = transformer.transform(flattened)
@@ -568,9 +575,12 @@ def norm_m0v1(x, *args):
     orig_shape = x.shape
     flattened = x.flatten()[..., np.newaxis]
     if transformer is None:
-        mean_ = x.mean(axis=(3, 4)).reshape(orig_shape[0], orig_shape[1], orig_shape[2], 1, 1)
-        std_ = x.std(axis=(3, 4)).reshape(orig_shape[0], orig_shape[1], orig_shape[2], 1, 1)
-        new_x = (x - mean_)/std_
+        # mean_ = x.mean(axis=(3, 4)).reshape(orig_shape[0], orig_shape[1], orig_shape[2], 1, 1)
+        # std_ = x.std(axis=(3, 4)).reshape(orig_shape[0], orig_shape[1], orig_shape[2], 1, 1)
+        # new_x = (x - mean_)/std_
+        mean_ = [d.mean(axis=(-2, -1), keepdims=True) for i, d in enumerate(x)]
+        std_ = [d.std(axis=(-2, -1), keepdims=True) for i, d in enumerate(x)]
+        new_x = [(d - mean_i) / std_i for d, mean_i, std_i in zip(x, mean_, std_)]
         return new_x
 
     transfomer_ = transformer.transform(flattened)
@@ -615,10 +625,13 @@ def normalize(input_data, to_all_cores=False, norm=None):
         _norm = norm_m0v1
 
     for set_name in ['val', 'test', 'train']:
-        input_data[f'data_{set_name}'] = np.stack(input_data[f'data_{set_name}'], axis=0)
+        # input_data[f'data_{set_name}'] = np.stack(input_data[f'data_{set_name}'], axis=0)
+        input_data[f'data_{set_name}'] = np.array(input_data[f'data_{set_name}'])
 
-    min_ = input_data[f'data_train'].min()
-    max_ = input_data[f'data_train'].max()
+    # min_ = input_data[f'data_train'].min()
+    # max_ = input_data[f'data_train'].max()
+    min_ = np.array([input_data[f'data_train'][i].min() for i, _ in enumerate(input_data[f'data_train'])]).min()
+    max_ = np.array([input_data[f'data_train'][i].max() for i, _ in enumerate(input_data[f'data_train'])]).max()
 
     for set_name in ['val', 'test', 'train']:
         frame_max = input_data[f'Frame_max_{set_name}'] if 'Frame_max_train' in input_data.keys() else None
@@ -633,10 +646,12 @@ def normalize(input_data, to_all_cores=False, norm=None):
             a = signal_data.flatten()
             transformer = RobustScaler().fit(a[...,np.newaxis])
 
-        input_data[f'data_{set_name}'] = _norm(input_data[f'data_{set_name}'].astype('float32'),
+        input_data[f'data_{set_name}'] = _norm(input_data[f'data_{set_name}'], #.astype('float32')
                                                min_, max_, frame_max, transformer)
+
         # changing the dimensionality for different experiments
         # input_data[f'data_{set_name}'] = input_data[f'data_{set_name}'][:, :, 0:1,...]
+        # todo: change accordingly for blending frame dimension in patch dimension
         # input_data[f'data_{set_name}'] = rearrange(input_data[f'data_{set_name}'], 'b p (c c1) h w -> b (p c) c1 h w', c1=1)
     return input_data
 
@@ -752,8 +767,8 @@ def preprocess(input_data, p_thr=.2, norm=None, shffl_patients=False, signal_spl
     :param val_size:
     :return:
     """
-    # for set_name in ['val', 'test', 'train']:
-        # input_data = remove_empty_data(input_data, set_name, p_thr)
+    for set_name in ['val', 'test', 'train']:
+        input_data = remove_empty_data(input_data, set_name, p_thr)
     if norm!='none' or augment:
         input_data = normalize(input_data, norm=norm)
     if shffl_patients or signal_split:

@@ -1,6 +1,6 @@
 import matplotlib
 
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 import seaborn as sns
 import matplotlib.pyplot as plt
 
@@ -290,7 +290,8 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     for k1 in range(inv.shape[0]):
         for k2 in range(inv.shape[1]):
             plt.text(k1-width/2., joblblpos[k1, k2], label[k1][k2] if inv[k1, k2] != 0 else '')
-
+    if plotting:
+        plt.show()
 
     fig4 = plt.figure(4)
     inv_unc = np.array([involvement[i] for i in range(len(pred_inv_wNan))
@@ -312,6 +313,9 @@ def net_interpretation(predicted_label, patient_id, involvement, gleason_score, 
     ax4.axhline(y=.505, linewidth=.6, linestyle='--', color='black')
     ax4.axis('square')
     ax4.set(ylim=[-.1, 1.1], xlim=[-.1, 1.1])
+
+    if plotting:
+        plt.show()
 
     if writer:
         # img = plot_to_image(fig4)

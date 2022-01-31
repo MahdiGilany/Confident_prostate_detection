@@ -1,5 +1,6 @@
 from .misc import *
 from .plots import *
+from .dataset import preprocess
 from .get_model import get_model
 from .get_loss_function import get_loss_function
 from .metrics import compute_metrics
