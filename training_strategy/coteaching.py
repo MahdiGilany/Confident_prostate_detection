@@ -282,7 +282,7 @@ class CoTeaching(Model):
         #                              epoch)
         return loss1.item() + loss2.item(), correct / total
 
-    def eval(self, tst_dl, device=None, net_index=1):
+    def eval(self, tst_dl, device=None, net_index=1, **kwargs):
         """
 
         :param net_index: 1 or 2
@@ -291,7 +291,7 @@ class CoTeaching(Model):
         :return: outputs and signal-wise accuracy
         """
         [_.eval() for _ in self.network_list]
-        return super(CoTeaching, self).eval(tst_dl, device)
+        return super(CoTeaching, self).eval(tst_dl, device, **kwargs)
 
 
 class CoTeachingMultiTask(CoTeaching):

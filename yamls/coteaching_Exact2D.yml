@@ -8,7 +8,7 @@ self_train: False
 variational: False
 multitask: False
 is_eval: False
-val_size: .4
+val_size: .25
 split_random_state: 26
 
 paths: # 'exp_name' will be replaced by actual experiment name
@@ -33,8 +33,8 @@ data_source:
   dynmc_dataroot: C:/Users/Mahdi/Desktop/Exact/UVA_multiframe #D:/Exact/patches/UVA_multiframe
 
 # Tunable (iteratively) hyper-parameters
-seed: 0
-n_epochs: 100
+seed: 5
+n_epochs: 200
 epoch_start_correct: 1000
 epoch_label_anneal: 1000 # enabling label refinement Mahdi version
 total_iters: 20000

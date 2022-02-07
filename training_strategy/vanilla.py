@@ -85,10 +85,12 @@ class Model:
         outputs = []
         entropic_scores = []
         uncertainty = []
+        unc_thr = kwargs['un_thr']
         total = correct = 0
 
         ##todo no classes is not always 2
         cm = np.zeros((2,2))
+        cm_unc = np.zeros((2,2))
         # apply model on test signals
         for batch in tst_dl:
             x_raw, y_batch, n_batch, *_ = [t.to(self.device) for t in batch]
@@ -106,15 +108,21 @@ class Model:
             outputs.append(pred.cpu().numpy())
             total += y_batch.size(0)
             correct += (pred.argmax(dim=1) == torch.argmax(y_batch, dim=1)).sum().item()
-            # s = confusion_matrix(y_batch.argmax(dim=1).cpu(), pred.argmax(dim=1).cpu(), labels=[0,1])
+
             cm += confusion_matrix(y_batch.argmax(dim=1).cpu(), pred.argmax(dim=1).cpu(), labels=[0,1])
+            ind_unc = u<=unc_thr
+            cm_unc += confusion_matrix((y_batch[ind_unc, ...]).argmax(dim=1).cpu(),
+                                       (pred[ind_unc, ...]).argmax(dim=1).cpu(), labels=[0,1])
 
         tn, fp, fn, tp = cm.ravel()
+        tn_unc, fp_unc, fn_unc, tp_unc = cm_unc.ravel()
         acc_sb = (tp/(tp+fn) + tn/(tn+fp))/2.0
+        acc_sb_unc = (tp_unc/(tp_unc+fn_unc) + tn_unc/(tn_unc+fp_unc))/2.0
+
         outputs = np.concatenate(outputs)
         uncertainty = np.concatenate(uncertainty)
         entropic_scores = np.concatenate(entropic_scores)
-        return outputs, uncertainty, entropic_scores, correct / total, acc_sb
+        return outputs, uncertainty, entropic_scores, correct / total, acc_sb, acc_sb_unc
 
     def forward_backward_semi_supervised(self, *args, **kwargs):
         pass

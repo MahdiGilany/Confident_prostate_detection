@@ -775,6 +775,7 @@ def preprocess(input_data, p_thr=.2, norm=None, shffl_patients=False, signal_spl
         input_data = shuffle_patients(input_data, signal_split=signal_split)
     if split_rs >= 0:
         input_data = merge_split_train_val(input_data, random_state=split_rs, val_size=val_size)
+    # input_data = remove_smallCores(input_data, th=15)
     return input_data
 
 
@@ -1496,5 +1497,27 @@ def merge_split_train_val(input_data, random_state=0, val_size=.4, verbose=False
         for set_name in ['train', 'val']:
             for k in keys:
                 print(k, len(input_data[f'{k}_{set_name}']))
+
+    return input_data
+
+
+def remove_smallCores(input_data, th):
+    for set_name in ['val', 'train']:
+        input_data = rm_smalls(input_data, set_name, th)
+    return input_data
+
+
+def rm_smalls(input_data, set_name, th):
+    ind = []
+    for i, d in enumerate(input_data[f'data_{set_name}']):
+        if d.shape[0]>th:
+            ind.append(i)
+
+    for k in input_data.keys():
+        if set_name in k:
+            if isinstance(input_data[k], list):
+                input_data[k] = [input_data[k][i] for i in ind]
+            else:
+                input_data[k] = input_data[k][ind]
 
     return input_data

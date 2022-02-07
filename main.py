@@ -138,7 +138,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
 
     # Evaluation
-    predictions, uncertainty, ood_scores, acc_s, acc_sb = model.eval(tst_dl, net_index=1)
+    predictions, uncertainty, ood_scores, acc_s, acc_sb, acc_sb_unc = model.eval(tst_dl, net_index=1, un_thr=opt.uncertainty_thr)
 
     # if opt.loss_name!='edl':
     #     uncertainty = np.zeros_like(uncertainty)
@@ -149,6 +149,9 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
 
     # Calculating & logging metrics
     scores = {'acc_s': acc_s, 'acc_sb': acc_sb}
+    if opt.loss_name == 'edl':
+        scores['acc_sb-unc'] = acc_sb_unc
+
     scores = compute_metrics(predicted_involvement, true_involvement,
                              current_epoch=current_epoch, verbose=True, scores=scores,
                              threshold=opt.core_th, edl=opt.loss_name == 'edl')
