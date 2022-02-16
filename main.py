@@ -14,6 +14,7 @@ def train(opt):
         create_datasets = create_datasets_Exact_dynmc
     else:
         create_datasets = create_datasets_Exact
+    print('seed',opt.seed)
 
 # Datasets / Dataloader
     trn_ds, train_set, val_set, test_set = create_datasets(
@@ -65,17 +66,18 @@ def train(opt):
 
         # Training
         model.train(epoch, trn_dl, writer=writer)
-
+        flag_val = False
         if (opt.train.val_interval > 0) and ((epoch + 1) % opt.train.val_interval == 0):
             acc, _ = evaluate(opt, model, val_set, epoch, set_name='Val', writer=writer)
 
             if acc >= best_acc:  # check validation accuracy
+                flag_val = True
                 best_acc = acc
                 model.save(opt.paths.checkpoint_dir, 'best')
                 print(f'Epoch {epoch} best model saved with accuracy: {best_acc:2.2%}')
 
         # Periodical testing
-        if (opt.test.test_interval > 0) and ((epoch + 1) % opt.test.test_interval == 0):
+        if (opt.test.test_interval > 0) and ((epoch + 1) % opt.test.test_interval == 0) or flag_val:
             evaluate(opt, model, test_set, epoch, set_name='Test', writer=writer)
             # testing on training set
             # _, trn_ds.inv_pred = evaluate(opt, model, train_set, epoch, set_name='Train', writer=writer)
@@ -138,7 +140,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     # tst_dl = create_loaders_test(datasets, bs=opt.test_batch_size, jobs=opt.num_workers)
 
     # Evaluation
-    predictions, uncertainty, ood_scores, acc_s, acc_sb, acc_sb_unc = model.eval(tst_dl, net_index=1, un_thr=opt.uncertainty_thr)
+    predictions, uncertainty, ood_scores, acc_s, acc_sb, acc_sb_unc = model.eval(tst_dl, net_index=1, opt=opt)
 
     # if opt.loss_name!='edl':
     #     uncertainty = np.zeros_like(uncertainty)
@@ -148,13 +150,15 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
         infer_core_wise(predictions, uncertainty, core_len, roi_coors, opt.uncertainty_thr, ood_scores)
 
     # Calculating & logging metrics
+    use_unc = False
     scores = {'acc_s': acc_s, 'acc_sb': acc_sb}
-    if opt.loss_name == 'edl':
+    if opt.loss_name == 'edl' or opt.dropout.rate!='none':
         scores['acc_sb-unc'] = acc_sb_unc
+        use_unc = True
 
     scores = compute_metrics(predicted_involvement, true_involvement,
                              current_epoch=current_epoch, verbose=True, scores=scores,
-                             threshold=opt.core_th, edl=opt.loss_name == 'edl')
+                             threshold=opt.core_th, edl=use_unc)
 
     # import pylab as plt
     # heatmaps_dir = opt.paths.result_dir + f'_heatmaps/{state}'
@@ -165,7 +169,7 @@ def evaluate(opt, model=None, dataset_test=None, current_epoch=None, set_name='T
     net_interpretation(predicted_involvement, patient_id_bk,
                        true_involvement, gs_bk, opt.paths.result_dir,
                        ood=ood, current_epoch=current_epoch, set_name=set_name,
-                       writer=writer, scores=scores, threshold=opt.core_th, edl=opt.loss_name == 'edl')
+                       writer=writer, scores=scores, threshold=opt.core_th, edl=use_unc)
 
     # if set_name.lower() == 'train':
     #     predicted_involvement = np.concatenate(

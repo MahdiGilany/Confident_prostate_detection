@@ -51,9 +51,13 @@ temperature: .5
 aug_type: 'none'
 aug_prob: 0.2
 unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
-loss_name: 'edl' # # 'gce'
+loss_name: 'ce' # # 'gce'
 min_inv: .7
 uncertainty_thr: .2 #
+
+dropout:
+  rate: 'none'
+  T_samples: 30
 
 core_wise:
   activation: False

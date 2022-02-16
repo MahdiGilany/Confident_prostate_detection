@@ -21,6 +21,7 @@ def _construct_network(device, opt, backbone, num_class=None, num_positions=None
                            num_positions=opt.arch.num_positions if num_positions is None else num_positions,
                            self_train=opt.self_train,
                            variational=opt.variational,
+                           opt=opt,
                            verbose=False)
 
     return _get_network
@@ -91,7 +92,7 @@ def construct_classifier(device, opt):
 def get_network(backbone, device, in_channels, nb_class, num_positions=12,
                 verbose=True, self_train=False, num_blocks=3,
                 out_channels=30, mid_channels=32, variational=False,
-                **kwargs):
+                opt=None, **kwargs):
     backbone = backbone.lower()
     if backbone == 'simconv4':
         from self_time.model.model_backbone import SimConv4
@@ -115,7 +116,7 @@ def get_network(backbone, device, in_channels, nb_class, num_positions=12,
         # _net = resnet20 if not variational else resnet20_variational
         _net = resnet10
         # _net = resnet10Small
-        net = _net(pretrained=False, num_classes=nb_class, in_channels=in_channels)
+        net = _net(pretrained=False, num_classes=nb_class, in_channels=in_channels, drop_rate=opt.dropout.rate)
     elif backbone == 'densenet':
         # _net = resnet20 if not variational else resnet20_variational
         _net = densenet121

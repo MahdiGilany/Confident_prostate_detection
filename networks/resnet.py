@@ -472,7 +472,7 @@ class DropoutResnet(nn.Module):
         self.conv1 = source_resnet.conv1
         self.bn1 = source_resnet.bn1
         self.relu = source_resnet.relu
-        self.maxpool = source_resnet.relu
+        self.maxpool = source_resnet.maxpool
         self.layer1 = self._make_layer(source_resnet.layer1, dropout_rate)
         self.layer2 = self._make_layer(source_resnet.layer2, dropout_rate)
         self.layer3 = self._make_layer(source_resnet.layer3, dropout_rate)
@@ -511,8 +511,8 @@ class DropoutResnet(nn.Module):
 
         return x
 
-    # Allow for accessing forward method in a inherited class
-    forward = _forward
+    def forward(self, x, *args):
+        return self._forward(x)
 
 
 def _resnet(
@@ -523,7 +523,7 @@ def _resnet(
     progress: bool,
     drop_rate,
     **kwargs: Any
-) -> ResNet:
+):
     model = ResNet(block, layers, **kwargs)
     if pretrained:
         state_dict = load_state_dict_from_url(model_urls[arch],

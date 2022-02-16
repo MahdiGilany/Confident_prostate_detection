@@ -85,7 +85,8 @@ class Model:
         outputs = []
         entropic_scores = []
         uncertainty = []
-        unc_thr = kwargs['un_thr']
+        opt = kwargs['opt']
+        unc_thr = opt.uncertainty_thr
         total = correct = 0
 
         ##todo no classes is not always 2
@@ -94,23 +95,29 @@ class Model:
         # apply model on test signals
         for batch in tst_dl:
             x_raw, y_batch, n_batch, *_ = [t.to(self.device) for t in batch]
-            out1 = self.infer(x_raw, n_batch, mode='test')
-            pred = F.softmax(out1, dim=1)
+            if opt.dropout.rate!='none':
+                # pred and uncertainty (1-confidence) of dropout
+                pred, unc = self.drop_eval(x_raw, n_batch, opt.dropout.T_samples)
+            else:
+                out1 = self.infer(x_raw, n_batch, mode='test')
+                pred = F.softmax(out1, dim=1)
+
+                #edl uncertainty
+                alpha = F.relu(out1) + 1
+                unc = 2. / torch.sum(alpha, dim=1, keepdim=True).reshape(-1)
+
+            uncertainty.append(unc.cpu().numpy())
 
             probabilities = pred  # torch.nn.Softmax(dim=1)(pred)
             entropies = -(probabilities * torch.log(probabilities)).sum(dim=1)
             entropic_scores.append((-entropies).cpu().numpy())
-
-            alpha = F.relu(out1) + 1
-            u = 2. / torch.sum(alpha, dim=1, keepdim=True).reshape(-1)
-            uncertainty.append(u.cpu().numpy())
 
             outputs.append(pred.cpu().numpy())
             total += y_batch.size(0)
             correct += (pred.argmax(dim=1) == torch.argmax(y_batch, dim=1)).sum().item()
 
             cm += confusion_matrix(y_batch.argmax(dim=1).cpu(), pred.argmax(dim=1).cpu(), labels=[0,1])
-            ind_unc = u<=unc_thr
+            ind_unc = unc<=unc_thr
             cm_unc += confusion_matrix((y_batch[ind_unc, ...]).argmax(dim=1).cpu(),
                                        (pred[ind_unc, ...]).argmax(dim=1).cpu(), labels=[0,1])
 
@@ -123,6 +130,18 @@ class Model:
         uncertainty = np.concatenate(uncertainty)
         entropic_scores = np.concatenate(entropic_scores)
         return outputs, uncertainty, entropic_scores, correct / total, acc_sb, acc_sb_unc
+
+    def drop_eval(self, x_raw, n_batch, T_samples):
+        pred_list, unc_list = [], []
+        for i in range(T_samples):
+            out1 = self.infer(x_raw, n_batch, mode='test')
+            pred = F.softmax(out1, dim=1)
+            pred_list.append(torch.unsqueeze(pred, dim=0))
+        pred_mean = torch.cat(pred_list, 0).mean(dim=0)
+        confidence,_ = torch.max(pred_mean, dim=1)
+        unc = 1. - confidence
+        return pred_mean, unc
+
 
     def forward_backward_semi_supervised(self, *args, **kwargs):
         pass
