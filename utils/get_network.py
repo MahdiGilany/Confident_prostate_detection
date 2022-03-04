@@ -138,6 +138,9 @@ def get_network(backbone, device, in_channels, nb_class, num_positions=12,
     elif backbone == 'classifier3l_2d':
         #
         net = Classifier_3L_2D(in_channels, nb_class, num_positions=num_positions)
+    elif backbone == 'simpleconv':
+        #
+        net = SimpleConv(in_channels, nb_class, num_positions=num_positions)
 
     # Wrap the feature extractor with the position encoding network
     # net = PosEncoder(net, num_positions=num_positions, variational=variational)

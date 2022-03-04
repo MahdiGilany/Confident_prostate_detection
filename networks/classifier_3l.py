@@ -228,6 +228,21 @@ class Classifier3L_2D(nn.Module):
         return self.out(feat)
 
 
+class SimpleConv(nn.Module):
+    def __init__(self, raw_ni, no, drop=.5, num_positions=12):
+        super().__init__()
+        self.num_positions = num_positions
+        self.conv1 = nn.Conv2d(raw_ni, 1, 10, 10)
+        self.raw = nn.Sequential(Flatten())
+        self.out = nn.Linear(625, no)
+
+    def forward(self, x, *args):
+        x = self.conv1(x)
+        y = self.raw(x)
+        y = self.out(y)
+        return y
+
+
 if __name__ == "__main__":
     import numpy as np
     from torchinfo import summary
@@ -236,8 +251,11 @@ if __name__ == "__main__":
     #         print(net_name)
     #         test(globals()[net_name]())
     #         print()
-    net = Classifier3L_2D(1, 2, num_positions=12)
-    summary(net, input_size=[(2, 1, 286, 5), (2, 12)])
+    # net = Classifier3L_2D(1, 2, num_positions=12)
+    # summary(net, input_size=[(2, 1, 286, 5), (2, 12)])
 
     # net = Classifier3LV1(1, 2, num_positions=12)
     # summary(net, input_size=[(2, 1, 286), (2, 12)])
+
+    net = SimpleConv(1, 2, num_positions=12)
+    summary(net, input_size=[(2, 1, 256, 256), (2, 12)])

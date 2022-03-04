@@ -149,6 +149,8 @@ def parse_args() -> dict:
                         help="Training seed")
     parser.add_argument("--seed", type=int,
                         help="Training seed")
+    parser.add_argument("--split_random_state", type=int,
+                        help="Training srs")
     parser.add_argument("--train-batch-size", type=int,
                         help="Batch size during training")
     parser.add_argument("--test-batch-size", type=int,

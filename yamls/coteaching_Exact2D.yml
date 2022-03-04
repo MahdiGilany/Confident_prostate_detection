@@ -34,12 +34,13 @@ data_source:
 
 # Tunable (iteratively) hyper-parameters
 seed: 5
-n_epochs: 200
+n_epochs: 100
 epoch_start_correct: 1000
 epoch_label_anneal: 1000 # enabling label refinement Mahdi version
 total_iters: 20000
 #backbone: [ Inception, Inception ]  # SimConv4 Inception resnet_ucr
 backbone: [ resnet, resnet ]  # SimConv4 Inception resnet
+#backbone: [ resnet, simpleconv ]  # resnet and vanilla
 #backbone: [ resvit, resvit ]
 #backbone: [ densenet, densenet ]
 #backbone: [ unet_modf, unet_modf ]
@@ -56,7 +57,7 @@ aug_type: 'none'
 aug_prob: 0.2
 unsup_aug_type: [ 'magnitude_warp', 'time_warp', 'window_slice', 'window_warp' ]  # 'none', 'scaling'
 loss_name: 'ce' # # 'gce'
-min_inv: .7
+min_inv: .4
 uncertainty_thr: 0.2 #
 
 dropout:

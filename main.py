@@ -14,7 +14,7 @@ def train(opt):
         create_datasets = create_datasets_Exact_dynmc
     else:
         create_datasets = create_datasets_Exact
-    print('seed',opt.seed)
+    print('srs and seed', opt.split_random_state, opt.seed)
 
 # Datasets / Dataloader
     trn_ds, train_set, val_set, test_set = create_datasets(
